@@ -1981,7 +1981,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             providerCallCount++
             const requestedCursor = cursor
             const requestedPageLimit = providerPageLimit
-            let page
+            let page: Awaited<ReturnType<typeof sessionQuery.searchSessions>>
             try {
               page = await sessionQuery.searchSessions({
                 query: request.payload.query,
@@ -3477,7 +3477,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
               const data = event.data as ToolCallData
               try {
                 let table = openCalls.get(session.id)
-                if (table === undefined) openCalls.set(session.id, table = new Map<string, { name: string; args: unknown }>())
+                if (table === undefined) {
+                  table = new Map<string, { name: string; args: unknown }>()
+                  openCalls.set(session.id, table)
+                }
                 table.set(data.callId, { name: data.name, args: JSON.parse(data.arguments) })
               } catch {
                 // Unparseable model arguments: leave the table unset; the result view soft-falls.

@@ -19,7 +19,7 @@ import clsx from 'clsx'
 import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconWarningOutline16, Toast,
+  IconSettingsOutline14, IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -263,6 +263,20 @@ export function ModelSelect(
                   <IconChevronRightOutline14 className={css.cellChevron} />
                 </button>
               )}
+              <div className={css.separator} />
+              <button
+                ref={itemRef()}
+                type="button"
+                role="menuitem"
+                className={css.manageProvidersButton}
+                onClick={() => {
+                  close(true)
+                  window.dispatchEvent(new CustomEvent('dsh:open-settings', { detail: { section: 'models' } }))
+                }}
+              >
+                <IconSettingsOutline14 size={14} />
+                <span>{t('menu.addProvider')}</span>
+              </button>
             </>
           )}
 
@@ -322,6 +336,20 @@ export function ModelSelect(
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
               )}
+              <div className={css.separator} />
+              <button
+                ref={itemRef()}
+                type="button"
+                role="menuitem"
+                className={css.manageProvidersButton}
+                onClick={() => {
+                  close(true)
+                  window.dispatchEvent(new CustomEvent('dsh:open-settings', { detail: { section: 'models' } }))
+                }}
+              >
+                <IconSettingsOutline14 size={14} />
+                <span>{t('menu.addProvider')}</span>
+              </button>
             </>
           )}
 

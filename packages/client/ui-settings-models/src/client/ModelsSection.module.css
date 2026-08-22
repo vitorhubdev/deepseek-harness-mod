@@ -831,3 +831,59 @@ select.input {
   font-size: 11px;
   color: var(--dsw-alias-state-success-primary);
 }
+
+.baseUrlHint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.fetchSummary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  line-height: 18px;
+  margin-top: 4px;
+}
+
+.fetchDetectedBadge {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}
+
+.fetchSuccessBadge {
+  color: var(--dsw-alias-state-success-primary);
+  font-weight: 500;
+}
+
+.fetchNoNewBadge {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.newTag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+}
+
+.fetchModalHeader {
+  margin: -4px 0 8px;
+  padding: 6px 10px;
+  background: var(--dsw-alias-bg-layer-1);
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+  font-weight: 500;
+}

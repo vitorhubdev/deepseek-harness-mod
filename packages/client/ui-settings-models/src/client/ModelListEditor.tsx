@@ -198,6 +198,11 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const [onlyFree, setOnlyFree] = useState(false)
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
   const [copied, setCopied] = useState(false)
+  const [fetchStatus, setFetchStatus] = useState<{
+    total: number
+    newCount: number
+    adoptedCount?: number
+  } | undefined>(undefined)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => () => {
@@ -277,6 +282,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const fetchModels = async (): Promise<void> => {
     setBusy(true)
     setFailure(undefined)
+    setFetchStatus(undefined)
     try {
       const response = await api.llm.discoverModels(probeRequest)
       if (!response.result.ok) {
@@ -291,10 +297,15 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       // Everything already configured starts unchecked, so adopting a
       // selection never silently rewrites a capacity the user corrected.
       const known = new Set(models.map(model => textOf(model, 'id')))
+      const newModels = found.filter(model => !known.has(model.id))
       setCandidates(found)
-      setPicked(new Set(found.filter(model => !known.has(model.id)).map(model => model.id)))
+      setPicked(new Set(newModels.map(model => model.id)))
       setOnlyFree(false)
       setTestStates({})
+      setFetchStatus({
+        total: found.length,
+        newCount: newModels.length,
+      })
     } catch (error) {
       // The transport rejected rather than answering; without this the button
       // would stay busy with nothing shown.
@@ -316,8 +327,10 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     if (candidates === undefined) return
     const byId = new Map(models.map(model => [textOf(model, 'id'), model]))
     const pool = onlyFree ? freeCandidates : activeCandidates
+    let added = 0
     for (const candidate of pool) {
       if (!picked.has(candidate.id)) continue
+      if (!byId.has(candidate.id)) added++
       // A row the user already tuned wins over the provider's own numbers.
       // Keyed by id, so a half-typed row whose id is still empty is not a
       // match and the candidate joins as its own row — correct, since a row
@@ -325,6 +338,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       byId.set(candidate.id, byId.get(candidate.id) ?? adopt(candidate))
     }
     onChange([...byId.values()])
+    setFetchStatus(prev => prev ? { ...prev, adoptedCount: added } : { total: pool.length, newCount: added, adoptedCount: added })
     closePicker()
   }
 
@@ -384,9 +398,13 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }
   }
 
+  const knownModelIds = new Set(models.map(model => textOf(model, 'id')))
+  const newCandidatesCount = activeCandidates.filter(c => !knownModelIds.has(c.id)).length
+
   const renderCandidate = (candidate: DiscoveredModelView): ReactNode => {
     const state = testStates[candidate.id] ?? { status: 'idle' as const }
     const isFree = isFreeModel(candidate)
+    const isNew = !knownModelIds.has(candidate.id)
     return (
       <li key={candidate.id} className={styles['candidate']}>
         <label className={styles['candidateLabel']}>
@@ -396,6 +414,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             onChange={() => { toggle(candidate.id) }}
           />
           <span className={styles['candidateId']}>{candidate.id}</span>
+          {isNew ? <span className={styles['newTag']}>{t('newTag')}</span> : null}
           {isFree ? <span className={styles['freeTag']}>free</span> : null}
         </label>
         <button
@@ -453,6 +472,19 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           {busy ? t('fetching') : t('fetchModels')}
         </button>
       </div>
+      {fetchStatus !== undefined && failure === undefined
+        ? (
+          <div className={styles['fetchSummary']}>
+            {fetchStatus.adoptedCount !== undefined
+              ? <span className={styles['fetchSuccessBadge']}>{t('modelsAdopted').replace('{count}', String(fetchStatus.adoptedCount))}</span>
+              : fetchStatus.newCount > 0
+                ? <span className={styles['fetchDetectedBadge']}>{t('fetchDetectedSummary').replace('{total}', String(fetchStatus.total)).replace('{newCount}', String(fetchStatus.newCount))}</span>
+                : <span className={styles['fetchNoNewBadge']}>{t('fetchNoNewModels').replace('{total}', String(fetchStatus.total))}</span>
+            }
+          </div>
+        )
+        : null}
+      {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
       {probe.baseURL !== undefined && probe.baseURL.length > 0
         ? (
           <div className={styles['apiUrlRow']}>
@@ -565,7 +597,6 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       >
         {t('addModel')}
       </button>
-      {failure !== undefined ? <p className={styles['error']}>{failure}</p> : null}
       <Modal
         open={candidates !== undefined}
         onClose={closePicker}
@@ -580,6 +611,11 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           </>
         )}
       >
+        <div className={styles['fetchModalHeader']}>
+          {newCandidatesCount > 0
+            ? t('fetchDetectedSummary').replace('{total}', String(activeCandidates.length)).replace('{newCount}', String(newCandidatesCount))
+            : t('fetchNoNewModels').replace('{total}', String(activeCandidates.length))}
+        </div>
         {probe.baseURL !== undefined && probe.baseURL.length > 0
           ? (
             <div className={styles['apiUrlRow']}>

@@ -41,6 +41,31 @@ type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
 /** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
 const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
+/** Known default public base URLs for built-in providers. */
+const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
+  deepseek: 'https://api.deepseek.com',
+  openai: 'https://api.openai.com/v1',
+  openrouter: 'https://openrouter.ai/api/v1',
+  anthropic: 'https://api.anthropic.com',
+  groq: 'https://api.groq.com/openai/v1',
+  mistral: 'https://api.mistral.ai/v1',
+  together: 'https://api.together.xyz/v1',
+  xai: 'https://api.x.ai/v1',
+  gemini: 'https://generativelanguage.googleapis.com/v1beta',
+  cohere: 'https://api.cohere.com/v2',
+  cerebras: 'https://api.cerebras.ai/v1',
+  perplexity: 'https://api.perplexity.ai',
+  ollama: 'http://localhost:11434/v1',
+  lmstudio: 'http://localhost:1234/v1',
+  github: 'https://models.inference.ai.azure.com',
+  siliconflow: 'https://api.siliconflow.cn/v1',
+  novita: 'https://api.novita.ai/v3/openai',
+  moonshot: 'https://api.moonshot.cn/v1',
+  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
+  minimax: 'https://api.minimax.chat/v1',
+  baichuan: 'https://api.baichuan-ai.com/v1',
+}
+
 /** Props of {@link ProviderEditor}. */
 export interface ProviderEditorProps {
   /** Provider route id. */
@@ -232,6 +257,10 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
     ? 'keyRequired' as const
     : undefined
   const shownKeyFailure = credentialRequiredFailure ?? keyFailure
+  const knownDefaultBaseUrl = layout === 'deepseek'
+    ? DEEPSEEK_PUBLIC_BASE_URL
+    : DEFAULT_PROVIDER_BASE_URLS[props.provider.toLowerCase()]
+  const effectiveBaseUrl = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL') ?? knownDefaultBaseUrl
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
@@ -430,7 +459,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   className={styles['input']}
                   type="text"
                   value={stringAt(draft, 'baseURL') ?? ''}
-                  placeholder={family === 'deepseek'
+                  placeholder={layout === 'deepseek'
                     ? DEEPSEEK_PUBLIC_BASE_URL
                     : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
                   aria-label={t('baseUrl')}
@@ -444,9 +473,8 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   type="button"
                   className={styles['iconButton']}
                   title={t('copy')}
+                  disabled={effectiveBaseUrl === undefined}
                   onClick={() => {
-                    const effectiveBaseUrl = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
-                      ?? (family === 'deepseek' ? DEEPSEEK_PUBLIC_BASE_URL : undefined)
                     if (effectiveBaseUrl === undefined) return
                     void navigator.clipboard.writeText(effectiveBaseUrl).then(() => {
                       setCopiedBaseUrl(true)
@@ -462,6 +490,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                 </button>
                 {copiedBaseUrl ? <span className={styles['copiedHint']}>{t('copied')}</span> : null}
               </div>
+              {effectiveBaseUrl !== undefined && stringAt(draft, 'baseURL') === undefined ? (
+                <div className={styles['baseUrlHint']}>
+                  <span>Effective URL: </span>
+                  <span className={styles['apiUrlValue']}>{effectiveBaseUrl}</span>
+                </div>
+              ) : null}
             </div>
             {/* The protocol sits beside the endpoint it describes, as it does
                 on the create card. */}

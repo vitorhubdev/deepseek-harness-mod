@@ -385,8 +385,9 @@ export abstract class AbstractApiClient implements IApiClient {
         const { done, value } = await reader.read()
         if (done) return
         buffer += decoder.decode(value, { stream: true })
-        let boundary: number
-        while ((boundary = buffer.indexOf('\n\n')) !== -1) {
+        while (true) {
+          const boundary = buffer.indexOf('\n\n')
+          if (boundary === -1) break
           const chunk = buffer.slice(0, boundary)
           buffer = buffer.slice(boundary + 2)
           const data = chunk.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)).join('')
