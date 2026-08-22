@@ -73,23 +73,30 @@ async function harness(): Promise<Context> {
 }
 
 describe('catalog-route model discovery', () => {
-  it('answers from the installed registry, with capacities and no network call', async () => {
-    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
+  it('answers from the installed registry without network call when no baseURL is provided', async () => {
+    const ctx = await harness()
+
+    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })
+
+    // pi-ai's own registry is the authority for its own providers without endpoint
+    expect(models.map(model => model.id).sort())
+      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
+  })
+
+  it('interrogates the live endpoint when baseURL is given and enriches with catalog metadata', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'deepseek-v4-flash' }, { id: 'custom-model', display_name: 'Custom' }] }) })
     const ctx = await harness()
 
     const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
 
-    // pi-ai's own registry is the authority for its own providers, and it
-    // carries what a listing endpoint would not disclose.
-    expect(models.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
-    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
-    expect(server.paths).toEqual([])
-  })
-
-  it('needs no endpoint for a route the catalog describes', async () => {
-    const ctx = await harness()
-    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
+    expect(server.paths).toEqual(['/models'])
+    const dsFlash = models.find(m => m.id === 'deepseek-v4-flash')
+    expect(dsFlash).toBeDefined()
+    expect((dsFlash?.contextWindow ?? 0) > 0).toBe(true)
+    const custom = models.find(m => m.id === 'custom-model')
+    expect(custom).toBeDefined()
+    expect(custom?.name).toBe('Custom')
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {

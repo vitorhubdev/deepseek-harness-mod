@@ -21,7 +21,7 @@
  * see instead of rebuilding the whole subtree from a partial descriptor.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { CredentialView, IApiClient, SettingsNamespaceView, SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
 import {
@@ -171,6 +171,12 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   const disabled = props.readOnly || busy
   const layout = layoutOf(namespace.ns)
   const keyRef = refFor(schema, namespace, settingsPath, props.provider)
+  const [copiedBaseUrl, setCopiedBaseUrl] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => {
+    clearTimeout(copyTimer.current)
+  }, [])
   // The same schema read the create card makes, so the choices offered here
   // and there cannot drift apart: both come from the adapter's own `Config`.
   // Only the pi-ai layout has a per-route protocol for the read to find, and
@@ -419,19 +425,43 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
               : null}
             <div className={styles['field']}>
               <span className={styles['fieldLabel']}>{t('baseUrl')}</span>
-              <input
-                className={styles['input']}
-                type="text"
-                value={stringAt(draft, 'baseURL') ?? ''}
-                placeholder={family === 'deepseek'
-                  ? DEEPSEEK_PUBLIC_BASE_URL
-                  : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
-                aria-label={t('baseUrl')}
-                disabled={disabled}
-                onChange={(event) => {
-                  setField('baseURL', event.target.value === '' ? undefined : event.target.value)
-                }}
-              />
+              <div className={styles['apiUrlRow']}>
+                <input
+                  className={styles['input']}
+                  type="text"
+                  value={stringAt(draft, 'baseURL') ?? ''}
+                  placeholder={family === 'deepseek'
+                    ? DEEPSEEK_PUBLIC_BASE_URL
+                    : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
+                  aria-label={t('baseUrl')}
+                  disabled={disabled}
+                  onChange={(event) => {
+                    setField('baseURL', event.target.value === '' ? undefined : event.target.value)
+                  }}
+                  style={{ flex: '1 1 auto' }}
+                />
+                <button
+                  type="button"
+                  className={styles['iconButton']}
+                  title={t('copy')}
+                  onClick={() => {
+                    const effectiveBaseUrl = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
+                      ?? (family === 'deepseek' ? DEEPSEEK_PUBLIC_BASE_URL : undefined)
+                    if (effectiveBaseUrl === undefined) return
+                    void navigator.clipboard.writeText(effectiveBaseUrl).then(() => {
+                      setCopiedBaseUrl(true)
+                      clearTimeout(copyTimer.current)
+                      copyTimer.current = setTimeout(() => { setCopiedBaseUrl(false) }, 1500)
+                    }).catch(() => undefined)
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+                    <path d="M3 9.5V3.5A1.5 1.5 0 014.5 2H10" stroke="currentColor" strokeWidth="1.2" />
+                  </svg>
+                </button>
+                {copiedBaseUrl ? <span className={styles['copiedHint']}>{t('copied')}</span> : null}
+              </div>
             </div>
             {/* The protocol sits beside the endpoint it describes, as it does
                 on the create card. */}

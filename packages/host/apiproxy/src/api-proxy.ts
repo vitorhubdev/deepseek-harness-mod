@@ -14,7 +14,7 @@ import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatu
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
 import { AttachmentError, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { isAppendSurfaceEvent, isJsonValue } from '@deepseek-ai/dsh-session'
@@ -3320,6 +3320,108 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             message: error instanceof Error ? error.message : String(error),
             details: { settingsNs, ...baseURL === undefined ? {} : { baseURL } },
           })
+        }
+      },
+
+      async testModel(request, signal) {
+        const { settingsNs, provider, baseURL, api, apiKey, model } = request.payload
+        const started = Date.now()
+        try {
+          // Prefer the adapter's own streaming path when the provider is already
+          // registered — it honors stored credentials and settings overrides.
+          const active = provider !== undefined && ctx.llm.listProviders().some(entry => entry.id === provider)
+          if (active) {
+            const pingMessage = createUserMessage({
+              content: [{ type: 'text', text: 'ping' }],
+              source: { kind: 'user' },
+            })
+            const stream = ctx.llm.stream({
+              provider,
+              model,
+              messages: [pingMessage],
+              maxTokens: 64,
+              ...signal === undefined ? {} : { signal },
+            })
+            for await (const chunk of stream) {
+              if (chunk.type === 'finish') {
+                const latencyMs = Date.now() - started
+                if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') {
+                  return ok(request, { ok: false, latencyMs, error: chunk.reason.failure.message })
+                }
+                return ok(request, { ok: true, latencyMs })
+              }
+              // First delta is enough to prove the model answers; latency is what matters.
+              if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
+                const latencyMs = Date.now() - started
+                return ok(request, { ok: true, latencyMs })
+              }
+            }
+            const latencyMs = Date.now() - started
+            return ok(request, { ok: true, latencyMs })
+          }
+
+          // Try the settings namespace's registered model test seam. This honors
+          // stored credentials for configured routes even when dormant.
+          try {
+            const result = await ctx.llm.testModel(settingsNs, {
+              ...provider === undefined ? {} : { provider },
+              ...baseURL === undefined ? {} : { baseURL },
+              ...api === undefined ? {} : { api },
+              ...apiKey === undefined ? {} : { apiKey },
+              model,
+              ...signal === undefined ? {} : { signal },
+            })
+            return ok(request, result)
+          } catch (testError: unknown) {
+            if (baseURL === undefined || baseURL.length === 0 || apiKey === undefined || apiKey.length === 0) {
+              return err(request, {
+                code: 'model-test-failed',
+                message: testError instanceof Error ? testError.message : String(testError),
+                details: { model, ...baseURL === undefined ? {} : { baseURL } },
+              })
+            }
+          }
+
+          // Direct draft endpoint probe with explicit baseURL and apiKey: raw fetch
+          // to the OpenAI-compatible chat completions shape.
+          const resolvedApi = api ?? 'openai-completions'
+          if (resolvedApi !== 'openai-completions' && resolvedApi !== 'openai-responses') {
+            return err(request, {
+              code: 'model-test-failed',
+              message: `protocol "${resolvedApi}" has no test probe in this build`,
+              details: { model, baseURL },
+            })
+          }
+          const url = `${baseURL.replace(/\/+$/, '')}/chat/completions`
+          const headers: Record<string, string> = {
+            'content-type': 'application/json',
+            accept: 'application/json',
+            ...attributionHeaders(),
+            authorization: `Bearer ${apiKey}`,
+          }
+          const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+              model,
+              messages: [{ role: 'user', content: 'ping' }],
+              max_tokens: 64,
+              stream: false,
+            }),
+            ...signal === undefined ? {} : { signal },
+          })
+          const latencyMs = Date.now() - started
+          if (!response.ok) {
+            const text = await response.text().catch(() => '')
+            return ok(request, { ok: false, latencyMs, error: `${url} answered ${response.status}${text ? `: ${text.slice(0, 300)}` : ''}` })
+          }
+          return ok(request, { ok: true, latencyMs })
+        } catch (error: unknown) {
+          const latencyMs = Date.now() - started
+          if (signal?.aborted) {
+            return ok(request, { ok: false, latencyMs, error: 'aborted' })
+          }
+          return ok(request, { ok: false, latencyMs, error: error instanceof Error ? error.message : String(error) })
         }
       },
     },

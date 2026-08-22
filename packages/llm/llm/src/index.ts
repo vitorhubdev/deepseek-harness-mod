@@ -15,6 +15,8 @@ import type {
   LlmModelContext,
   LlmModelDiscoveryRequest,
   LlmModelInfo,
+  LlmModelTestRequest,
+  LlmModelTestResult,
   LlmResolvedModelInfo,
   LlmProviderInfo,
   ModelModality,
@@ -315,6 +317,10 @@ export class LlmRuntime extends Service {
     string,
     (request: LlmModelDiscoveryRequest) => Promise<readonly LlmDiscoveredModel[]>
   >()
+  private testers = new Map<
+    string,
+    (request: LlmModelTestRequest) => Promise<LlmModelTestResult>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -583,6 +589,52 @@ export class LlmRuntime extends Service {
       })
     }
     return models
+  }
+
+  /**
+   * Offer to test provider endpoints on behalf of the settings namespace
+   * this plugin owns. Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this tester serves.
+   * @param test - tests one model endpoint; must honor `request.signal`.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelTest(
+    settingsNs: string,
+    test: (request: LlmModelTestRequest) => Promise<LlmModelTestResult>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model test needs a non-empty settings namespace', 'INVALID_DISCOVERY')
+      }
+      if (this.testers.has(settingsNs)) {
+        throw new LlmError(`model test for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      this.testers.set(settingsNs, test)
+      yield () => {
+        this.testers.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelTest()')
+    return () => void dispose()
+  }
+
+  /**
+   * Test one model on a provider endpoint.
+   * @param settingsNs - namespace whose registered tester serves this request.
+   * @param request - the endpoint, protocol, one-shot credential, and model to test.
+   * @returns the test result indicating success/latency/error.
+   */
+  async testModel(
+    settingsNs: string,
+    request: LlmModelTestRequest,
+  ): Promise<LlmModelTestResult> {
+    const test = this.testers.get(settingsNs)
+    if (test === undefined) {
+      throw new LlmError(`no model test is registered for "${settingsNs}"`, 'NO_DISCOVERY')
+    }
+    if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
+      throw new LlmError('model test needs a provider route or a baseURL', 'INVALID_DISCOVERY')
+    }
+    return test(request)
   }
 
   /**

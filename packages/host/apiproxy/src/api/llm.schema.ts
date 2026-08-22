@@ -62,3 +62,15 @@ export const llmDiscoverModelsRequestSchema = z.object({
 export const llmDiscoverModelsValueSchema = z.object({
   models: z.array(discoveredModelViewSchema),
 }) satisfies z.ZodType<Wire<ResponseValue<'llm.discoverModels'>>>
+
+/** llm.testModel request payload. */
+export const llmTestModelRequestSchema = llmDiscoverModelsRequestSchema.extend({
+  model: z.string().min(1),
+}) satisfies z.ZodType<Wire<RequestPayload<'llm.testModel'>>>
+
+/** llm.testModel response value. */
+export const llmTestModelValueSchema = z.object({
+  ok: z.boolean(),
+  latencyMs: z.number().int().nonnegative(),
+  error: z.string().optional(),
+}) satisfies z.ZodType<Wire<ResponseValue<'llm.testModel'>>>

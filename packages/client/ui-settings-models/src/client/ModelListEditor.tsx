@@ -14,7 +14,7 @@
  * rows the user can still fill in by hand.
  */
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -113,6 +113,25 @@ function IconTrash(): ReactNode {
   )
 }
 
+/** Copy glyph. */
+function IconCopy(): ReactNode {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <rect x="5" y="5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M3 9.5V3.5A1.5 1.5 0 014.5 2H10" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  )
+}
+
+/** Mini test glyph. */
+function IconTest(): ReactNode {
+  return (
+    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M3 8l3 3 7-7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 /** The two token counts edited as K/M-suffixed text behind a row's disclosure. */
 type CapacityField = 'contextWindow' | 'maxTokens'
 
@@ -153,6 +172,18 @@ function adopt(candidate: DiscoveredModelView): ModelDraft {
   }
 }
 
+/** Whether a discovered model is free-tier (id or name contains "free"). */
+function isFreeModel(candidate: DiscoveredModelView): boolean {
+  return /free/i.test(candidate.id) || (candidate.name !== undefined && /free/i.test(candidate.name))
+}
+
+/** Per-model test state for the mini probe. */
+type TestState =
+  | { status: 'idle' }
+  | { status: 'testing' }
+  | { status: 'ok'; latencyMs: number }
+  | { status: 'fail'; latencyMs: number; error: string }
+
 /**
  * Render the model list with its fetch action.
  * @param props - the drafted rows, probe target, wire face, and copy.
@@ -164,6 +195,14 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const [failure, setFailure] = useState<string | undefined>(undefined)
   const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
+  const [onlyFree, setOnlyFree] = useState(false)
+  const [testStates, setTestStates] = useState<Record<string, TestState>>({})
+  const [copied, setCopied] = useState(false)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  useEffect(() => () => {
+    clearTimeout(copyTimer.current)
+  }, [])
   // Rows carry an id and a name; capacities are the exception, so they stay
   // folded until asked for rather than crowding every row with four inputs.
   const [expanded, setExpanded] = useState<ReadonlySet<number>>(new Set())
@@ -227,17 +266,19 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }))
   }
 
+  const probeRequest = {
+    settingsNs: probe.settingsNs,
+    ...probe.provider === undefined ? {} : { provider: probe.provider },
+    ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
+    ...probe.api === undefined ? {} : { api: probe.api },
+    ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
+  }
+
   const fetchModels = async (): Promise<void> => {
     setBusy(true)
     setFailure(undefined)
     try {
-      const response = await api.llm.discoverModels({
-        settingsNs: probe.settingsNs,
-        ...probe.provider === undefined ? {} : { provider: probe.provider },
-        ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
-        ...probe.api === undefined ? {} : { api: probe.api },
-        ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
-      })
+      const response = await api.llm.discoverModels(probeRequest)
       if (!response.result.ok) {
         setFailure(response.result.error.message)
         return
@@ -252,6 +293,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       const known = new Set(models.map(model => textOf(model, 'id')))
       setCandidates(found)
       setPicked(new Set(found.filter(model => !known.has(model.id)).map(model => model.id)))
+      setOnlyFree(false)
+      setTestStates({})
     } catch (error) {
       // The transport rejected rather than answering; without this the button
       // would stay busy with nothing shown.
@@ -264,13 +307,16 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const closePicker = (): void => {
     setCandidates(undefined)
     setPicked(new Set())
+    setOnlyFree(false)
+    setTestStates({})
   }
 
   const adoptPicked = (): void => {
     /* v8 ignore next -- the dialog only renders with candidates loaded */
     if (candidates === undefined) return
     const byId = new Map(models.map(model => [textOf(model, 'id'), model]))
-    for (const candidate of candidates) {
+    const pool = onlyFree ? freeCandidates : activeCandidates
+    for (const candidate of pool) {
       if (!picked.has(candidate.id)) continue
       // A row the user already tuned wins over the provider's own numbers.
       // Keyed by id, so a half-typed row whose id is still empty is not a
@@ -291,15 +337,80 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   }
 
   const activeCandidates = candidates ?? []
-  const allCandidatesPicked = activeCandidates.length > 0
-    && activeCandidates.every(candidate => picked.has(candidate.id))
+  const freeCandidates = activeCandidates.filter(isFreeModel)
+  const paidCandidates = activeCandidates.filter(c => !isFreeModel(c))
+  const visible = onlyFree ? freeCandidates : activeCandidates
+  const visibleFree = freeCandidates
+  const visiblePaid = onlyFree ? [] : paidCandidates
+  const allCandidatesPicked = visible.length > 0
+    && visible.every(candidate => picked.has(candidate.id))
 
   const toggleAllCandidates = (): void => {
     setPicked((current) => {
-      return activeCandidates.every(candidate => current.has(candidate.id))
-        ? new Set()
-        : new Set(activeCandidates.map(candidate => candidate.id))
+      return visible.every(candidate => current.has(candidate.id))
+        ? new Set([...current].filter(id => !visible.some(c => c.id === id)))
+        : new Set([...current, ...visible.map(c => c.id)])
     })
+  }
+
+  const copyBaseURL = async (): Promise<void> => {
+    if (probe.baseURL === undefined || probe.baseURL.length === 0) return
+    try {
+      await navigator.clipboard.writeText(probe.baseURL)
+      setCopied(true)
+      clearTimeout(copyTimer.current)
+      copyTimer.current = setTimeout(() => { setCopied(false) }, 1500)
+    } catch {
+      // clipboard may be unavailable in insecure context; ignore
+    }
+  }
+
+  const testModel = async (candidate: DiscoveredModelView): Promise<void> => {
+    const id = candidate.id
+    if (testStates[id]?.status === 'testing') return
+    setTestStates(prev => ({ ...prev, [id]: { status: 'testing' } }))
+    try {
+      const response = await api.llm.testModel({ ...probeRequest, model: id })
+      const result = response.result
+      if (!result.ok) {
+        setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: result.error.message } }))
+        return
+      }
+      const v = result.value
+      if (v.ok) setTestStates(prev => ({ ...prev, [id]: { status: 'ok', latencyMs: v.latencyMs } }))
+      else setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: v.latencyMs, error: v.error ?? 'failed' } }))
+    } catch (error) {
+      setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: messageOf(error) } }))
+    }
+  }
+
+  const renderCandidate = (candidate: DiscoveredModelView): ReactNode => {
+    const state = testStates[candidate.id] ?? { status: 'idle' as const }
+    const isFree = isFreeModel(candidate)
+    return (
+      <li key={candidate.id} className={styles['candidate']}>
+        <label className={styles['candidateLabel']}>
+          <input
+            type="checkbox"
+            checked={picked.has(candidate.id)}
+            onChange={() => { toggle(candidate.id) }}
+          />
+          <span className={styles['candidateId']}>{candidate.id}</span>
+          {isFree ? <span className={styles['freeTag']}>free</span> : null}
+        </label>
+        <button
+          type="button"
+          className={styles['miniTestButton']}
+          disabled={state.status === 'testing' || props.probeBlocked !== undefined}
+          title={props.probeBlocked !== undefined ? t(props.probeBlocked) : t('testModel')}
+          onClick={() => { void testModel(candidate) }}
+        >
+          {state.status === 'testing' ? '…' : state.status === 'ok' ? `✓ ${state.latencyMs}ms` : state.status === 'fail' ? '✗' : <><IconTest /> {t('testMini')}</>}
+        </button>
+        {state.status === 'fail' && state.error ? <span className={styles['testError']} title={state.error}>{state.error.slice(0, 60)}</span> : null}
+        {state.status === 'ok' ? <span className={styles['testOk']}>{t('testOk')}</span> : null}
+      </li>
+    )
   }
 
   // A route the adapter already describes answers without an endpoint; only a
@@ -342,6 +453,18 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           {busy ? t('fetching') : t('fetchModels')}
         </button>
       </div>
+      {probe.baseURL !== undefined && probe.baseURL.length > 0
+        ? (
+          <div className={styles['apiUrlRow']}>
+            <span className={styles['apiUrlLabel']}>{t('apiUrl')}</span>
+            <span className={styles['apiUrlValue']} title={probe.baseURL}>{probe.baseURL}</span>
+            <button type="button" className={styles['iconButton']} title={t('copy')} onClick={() => { void copyBaseURL() }}>
+              <IconCopy />
+            </button>
+            {copied ? <span className={styles['copiedHint']}>{t('copied')}</span> : null}
+          </div>
+        )
+        : null}
       {models.length === 0 ? <p className={styles['modelEmpty']}>{t('modelsEmpty')}</p> : null}
       {models.map((model, index) => (
         <div key={index} className={styles['modelEntry']}>
@@ -457,28 +580,55 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           </>
         )}
       >
+        {probe.baseURL !== undefined && probe.baseURL.length > 0
+          ? (
+            <div className={styles['apiUrlRow']}>
+              <span className={styles['apiUrlLabel']}>{t('apiUrl')}</span>
+              <span className={styles['apiUrlValue']}>{probe.baseURL}</span>
+              <button type="button" className={styles['iconButton']} title={t('copy')} onClick={() => { void copyBaseURL() }}>
+                <IconCopy />
+              </button>
+              {copied ? <span className={styles['copiedHint']}>{t('copied')}</span> : null}
+            </div>
+          )
+          : null}
         <div className={styles['candidateActions']}>
+          <button
+            type="button"
+            className={styles['onlyFreeButton']}
+            aria-pressed={onlyFree}
+            onClick={() => { setOnlyFree(v => !v) }}
+          >
+            <span className={styles['onlyFreeCheck']} aria-hidden>{onlyFree ? '☑' : '☐'}</span>
+            {t('onlyFree')} {freeCandidates.length > 0 ? `(${freeCandidates.length})` : ''}
+          </button>
           <Button variant="ghost" size="sm" onClick={toggleAllCandidates}>
             {t(allCandidatesPicked ? 'fetchDeselectAll' : 'fetchSelectAll')}
           </Button>
         </div>
-        <ul className={styles['candidateList']}>
-          {(candidates ?? []).map(candidate => (
-            <li key={candidate.id} className={styles['candidate']}>
-              <label className={styles['candidateLabel']}>
-                <input
-                  type="checkbox"
-                  checked={picked.has(candidate.id)}
-                  onChange={() => { toggle(candidate.id) }}
-                />
-                {/* The id alone: it is the string adoption writes, and the
-                    capacities the endpoint reported are adopted with it and
-                    editable in the row that appears. */}
-                <span className={styles['candidateId']}>{candidate.id}</span>
-              </label>
-            </li>
-          ))}
-        </ul>
+        {visibleFree.length > 0
+          ? (
+            <>
+              <div className={styles['candidateGroupTitle']}>{t('freeModels')} ({visibleFree.length})</div>
+              <ul className={styles['candidateList']}>
+                {visibleFree.map(renderCandidate)}
+              </ul>
+            </>
+          )
+          : null}
+        {visiblePaid.length > 0
+          ? (
+            <>
+              <div className={styles['candidateGroupTitle']}>{t('paidModels')} ({visiblePaid.length})</div>
+              <ul className={styles['candidateList']}>
+                {visiblePaid.map(renderCandidate)}
+              </ul>
+            </>
+          )
+          : null}
+        {visibleFree.length === 0 && visiblePaid.length === 0
+          ? <p className={styles['modelEmpty']}>{onlyFree ? t('noFreeModels') : t('fetchEmpty')}</p>
+          : null}
       </Modal>
     </section>
   )

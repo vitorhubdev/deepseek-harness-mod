@@ -23,7 +23,12 @@
  */
 
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
-import type { LlmDiscoveredModel, LlmModelDiscoveryRequest } from '@deepseek-ai/dsh-llm'
+import type {
+  LlmDiscoveredModel,
+  LlmModelDiscoveryRequest,
+  LlmModelTestRequest,
+  LlmModelTestResult,
+} from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
 import { catalogModels } from './catalog.ts'
 
@@ -196,11 +201,10 @@ export async function discoverModels(
   request: LlmModelDiscoveryRequest,
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
-  // A catalog route already has its answer, and a better one: the installed
-  // entries carry context windows and output caps no listing endpoint reports.
-  if (request.provider !== undefined) {
-    const installed = catalogModels(request.provider)
-    if (installed.size > 0) {
+  const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
+  const baseURL = request.baseURL
+  if (baseURL === undefined || baseURL.length === 0) {
+    if (installed !== undefined && installed.size > 0) {
       return [...installed.values()].map(model => ({
         id: model.id,
         name: model.name,
@@ -208,35 +212,30 @@ export async function discoverModels(
         maxTokens: model.maxTokens,
       }))
     }
-  }
-  if (request.baseURL === undefined || request.baseURL.length === 0) {
     throw new LlmError(
       `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
       + " endpoint; set a baseURL, or enter this provider's models by hand",
       'DISCOVERY_FAILED',
     )
   }
-  // A draft that has not chosen a protocol yet is asked as OpenAI Chat
-  // Completions: it is the shape a gateway is overwhelmingly likely to speak,
-  // and the alternative — refusing until the field is filled — would withhold
-  // the action from the case it exists for. The cost is a misdirected message
-  // when the endpoint speaks something else (an Anthropic gateway answers 401,
-  // which reads as a credential problem), and hand-entry remains the way out.
+
   const api = request.api ?? 'openai-completions'
   if (!LISTABLE_PROTOCOLS.has(api)) {
+    if (installed !== undefined && installed.size > 0) {
+      return [...installed.values()].map(model => ({
+        id: model.id,
+        name: model.name,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      }))
+    }
     throw new LlmError(
       `pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`,
       'DISCOVERY_UNSUPPORTED',
     )
   }
-  const url = listingUrl(request.baseURL)
-  // A key typed into the form wins: it is the one the user is testing, and it
-  // may be the replacement for exactly the stored key that is failing. The
-  // stored one is only asked for here, past the catalog short-circuit and the
-  // protocol check, so a route answered from the registry costs no credential
-  // lookup — and no diagnostic about a credential it never needed.
-  // A probe carrying no key stays unauthenticated, which is how a route that
-  // relies on the provider's own ambient discovery is meant to be asked.
+
+  const url = listingUrl(baseURL)
   const supplied = request.apiKey ?? await storedApiKey?.()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
   let response: Response
@@ -254,9 +253,25 @@ export async function discoverModels(
     if (request.signal?.aborted) {
       throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
     }
+    if (installed !== undefined && installed.size > 0) {
+      return [...installed.values()].map(model => ({
+        id: model.id,
+        name: model.name,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      }))
+    }
     throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
   }
   if (!response.ok) {
+    if (installed !== undefined && installed.size > 0 && response.status !== 401 && response.status !== 403) {
+      return [...installed.values()].map(model => ({
+        id: model.id,
+        name: model.name,
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      }))
+    }
     throw new LlmError(
       `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
       'DISCOVERY_FAILED',
@@ -266,9 +281,6 @@ export async function discoverModels(
   try {
     text = await readBounded(response, url)
   } catch (error: unknown) {
-    // Cancellation during the body read rejects with the abort reason, which
-    // may be any value; the caller gets the same coded failure it would have
-    // for a cancellation before the request went out.
     if (request.signal?.aborted) {
       throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
     }
@@ -280,5 +292,83 @@ export async function discoverModels(
   } catch (error: unknown) {
     throw new LlmError(`${url} did not answer with JSON`, 'DISCOVERY_FAILED', { cause: error })
   }
-  return readListing(body)
+  const discovered = readListing(body)
+  if (installed !== undefined && installed.size > 0) {
+    return discovered.map((model) => {
+      const cat = installed.get(model.id)
+      return {
+        ...model,
+        ...cat?.name !== undefined && model.name === undefined ? { name: cat.name } : {},
+        ...cat?.contextWindow !== undefined && model.contextWindow === undefined ? { contextWindow: cat.contextWindow } : {},
+        ...cat?.maxTokens !== undefined && model.maxTokens === undefined ? { maxTokens: cat.maxTokens } : {},
+      }
+    })
+  }
+  return discovered
+}
+
+/**
+ * Test if a specific model answers on a provider endpoint.
+ * @param request - the endpoint, protocol, one-shot credential, and model to test.
+ * @param storedApiKey - the credential the named route already stored.
+ * @returns the test result indicating success/latency/error.
+ */
+export async function testModel(
+  request: LlmModelTestRequest,
+  storedApiKey?: () => Promise<string | undefined>,
+): Promise<LlmModelTestResult> {
+  const started = Date.now()
+  try {
+    if (request.baseURL === undefined || request.baseURL.length === 0) {
+      return {
+        ok: false,
+        latencyMs: 0,
+        error: 'test needs a baseURL or a registered provider',
+      }
+    }
+    const api = request.api ?? 'openai-completions'
+    if (api !== 'openai-completions' && api !== 'openai-responses') {
+      return {
+        ok: false,
+        latencyMs: 0,
+        error: `protocol "${api}" has no test probe in this build`,
+      }
+    }
+    const supplied = request.apiKey ?? await storedApiKey?.()
+    const apiKey = supplied === undefined || supplied.length === 0 ? undefined : usableProbeKey(supplied)
+    const url = `${request.baseURL.replace(/\/+$/, '')}/chat/completions`
+    const headers: Record<string, string> = {
+      'content-type': 'application/json',
+      accept: 'application/json',
+      ...attributionHeaders(),
+    }
+    if (apiKey !== undefined && apiKey.length > 0) headers.authorization = `Bearer ${apiKey}`
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: request.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 64,
+        stream: false,
+      }),
+      ...request.signal === undefined ? {} : { signal: request.signal },
+    })
+    const latencyMs = Date.now() - started
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      return {
+        ok: false,
+        latencyMs,
+        error: `${url} answered ${response.status}${text ? `: ${text.slice(0, 300)}` : ''}`,
+      }
+    }
+    return { ok: true, latencyMs }
+  } catch (error: unknown) {
+    const latencyMs = Date.now() - started
+    if (request.signal?.aborted) {
+      return { ok: false, latencyMs, error: 'aborted' }
+    }
+    return { ok: false, latencyMs, error: error instanceof Error ? error.message : String(error) }
+  }
 }

@@ -214,6 +214,34 @@ export interface LlmModelDiscoveryRequest {
 }
 
 /**
+ * One interrogation to test if a model answers on a provider endpoint.
+ */
+export interface LlmModelTestRequest {
+  /** Route the draft is editing, when it edits an existing one. */
+  provider?: string
+  /** Endpoint to interrogate. */
+  baseURL?: string
+  /** Wire protocol the endpoint speaks, when the draft names one. */
+  api?: string
+  /** One-shot credential for testing. */
+  apiKey?: string
+  /** Model id to test. */
+  model: string
+  /** Caller cancellation. */
+  signal?: AbortSignal
+}
+
+/** Result of a model test probe. */
+export interface LlmModelTestResult {
+  /** Whether the model answered successfully. */
+  ok: boolean
+  /** Latency in milliseconds. */
+  latencyMs: number
+  /** Error message when ok is false. */
+  error?: string
+}
+
+/**
  * One model an endpoint reports about itself. Every field but the id is
  * optional because most provider listings disclose an id and nothing else;
  * a surface adopting one of these still owes the capacities its adapter needs.

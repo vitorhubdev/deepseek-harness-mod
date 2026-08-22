@@ -265,4 +265,32 @@ describe('model discovery registry', () => {
     // Naming a route alone is enough: the adapter may know it without an endpoint.
     await expect(ctx.llm.discoverModels('llm-example', { provider: 'known-route' })).resolves.toEqual([])
   })
+
+  it('offers model testing per settings namespace and disposes with its fiber', async () => {
+    const ctx = await setup()
+    const testFn = vi.fn(() => Promise.resolve({ ok: true, latencyMs: 42 }))
+
+    const dispose = ctx.llm.registerModelTest('llm-example', testFn)
+    await expect(ctx.llm.testModel('llm-example', { baseURL: 'https://gateway.example/v1', model: 'test-model' }))
+      .resolves.toEqual({ ok: true, latencyMs: 42 })
+    expect(testFn).toHaveBeenCalledWith({ baseURL: 'https://gateway.example/v1', model: 'test-model' })
+
+    dispose()
+    await expect(ctx.llm.testModel('llm-example', { baseURL: 'https://gateway.example/v1', model: 'test-model' }))
+      .rejects.toThrow(/no model test is registered/)
+  })
+
+  it('validates namespace and prevents duplicate model test registrations', async () => {
+    const ctx = await setup()
+    const testFn = (): Promise<{ ok: boolean; latencyMs: number }> => Promise.resolve({ ok: true, latencyMs: 10 })
+
+    expect(() => ctx.llm.registerModelTest('', testFn)).toThrow(/non-empty settings namespace/)
+    ctx.llm.registerModelTest('llm-example', testFn)
+    expect(() => ctx.llm.registerModelTest('llm-example', testFn)).toThrow(/already registered/)
+
+    await expect(ctx.llm.testModel('llm-absent', { baseURL: 'https://gateway.example/v1', model: 'm' }))
+      .rejects.toMatchObject({ code: 'NO_DISCOVERY' })
+    await expect(ctx.llm.testModel('llm-example', { model: 'm' }))
+      .rejects.toMatchObject({ code: 'INVALID_DISCOVERY' })
+  })
 })

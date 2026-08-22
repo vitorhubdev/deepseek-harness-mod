@@ -74,6 +74,24 @@ export interface LlmApi {
     }>,
     signal?: AbortSignal,
   ): Promise<RpcResponse<{ models: DiscoveredModelView[] }>>
+
+  /**
+   * Probe one model with a tiny completion to verify reachability, credential,
+   * and that the id is accepted. The payload mirrors discoverModels plus the
+   * candidate id; nothing is written. The reply reports reachability and
+   * latency so the surface can show a per-row mini test result.
+   */
+  testModel(
+    request: RpcRequest<{
+      settingsNs: string
+      provider?: string
+      baseURL?: string
+      api?: string
+      apiKey?: string
+      model: string
+    }>,
+    signal?: AbortSignal,
+  ): Promise<RpcResponse<{ ok: boolean; latencyMs: number; error?: string }>>
 }
 
 /** Wire view of one model an interrogated endpoint advertises. */
