@@ -6,6 +6,25 @@ DeepSeek Harness (`dsh`) is an open-source agent harness developed by [DeepSeek 
 
 It uses an architecture where **everything is a plugin**, and is powered by [Cordis](https://github.com/cordiverse/cordis), whose design is described in [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper).
 
+## DeepMod Modifications & Features
+
+Este fork/mod (`DeepMod`) inclui melhorias de usabilidade, gerenciamento avançado de modelos e provedores, e otimizações de performance:
+
+- **Controle Centralizado de Versão & Identidade (`version.ts`)**: Identidade visual `DeepMod` com versão centralizada exibida no cabeçalho de configurações, barra lateral e telas de informações.
+- **Gerenciamento Completo de Provedores & Base URL**:
+  - Mapeamento pré-configurado de endpoints padrão para mais de 20 provedores de LLM (`default-urls.ts`).
+  - Exibição visual persistente da URL ativa (`Effective URL`) no editor de configurações.
+  - Botão de cópia rápida da Base URL para a área de transferência em um clique.
+- **Detecção Inteligente de Modelos (`Fetch available models`)**:
+  - Indicadores de status e contadores de novos modelos (`X models detected (Y new)` e `X models added`).
+  - Destaque com tag visual `new` para identificar modelos recém-lançados ou não configurados.
+  - Exibição imediata de erros de conexão no topo da lista.
+- **Acesso Rápido no Seletor do Composer**: Atalho direto *"Add / Manage providers…"* no menu de seleção de modelos para abrir as configurações instantaneamente.
+- **Otimizações de Performance & Plataforma**:
+  - Ajustes de subprocessos locais para execução fluida no Windows (PowerShell/CMD).
+  - Otimizações na persistência e compressão de sessões SQLite.
+  - Refatoração e sanitização de código TypeScript com linter/oxlint.
+
 ## Developer preview
 
 DeepSeek Harness is currently in _developer preview_ and is iterating rapidly. **THERE WILL BE COMPATIBILITY-BREAKING CHANGES.**

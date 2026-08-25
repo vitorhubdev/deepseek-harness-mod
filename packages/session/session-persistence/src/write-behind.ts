@@ -44,7 +44,7 @@ export class SessionWriteBehind {
    */
   enqueue(event: SessionEvent): void {
     const wasEmpty = this.pending.length === 0
-    this.pending.push(structuredClone(event))
+    this.pending.push(Object.isFrozen(event) ? event : structuredClone(event))
     if (this.barrier !== undefined) return
     if (this.automaticPaused) {
       this.automaticPaused = false
@@ -79,7 +79,11 @@ export class SessionWriteBehind {
 
   /** Start the one fixed window for the current pending prefix. */
   private armTimer(): void {
-    this.timer = setTimeout(() => { this.onDeadline() }, this.options.maxDelayMs)
+    const timer = setTimeout(() => { this.onDeadline() }, this.options.maxDelayMs)
+    if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') {
+      timer.unref()
+    }
+    this.timer = timer
   }
 
   /** Cancel any pending automatic deadline. */
@@ -125,6 +129,7 @@ export class SessionWriteBehind {
       while (this.pending.length > 0) await this.startWrite(false)
     } catch (error: unknown) {
       this.barrier = undefined
+      this.cancelTimer()
       reject(error)
       return
     }
@@ -132,6 +137,9 @@ export class SessionWriteBehind {
     // queue, before resolving callers. A later enqueue therefore starts its own
     // automatic window instead of being stranded behind a settled barrier.
     this.barrier = undefined
+    if (this.pending.length > 0) {
+      this.armTimer()
+    }
     resolve()
   }
 

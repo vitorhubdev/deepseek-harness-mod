@@ -144,9 +144,18 @@ export class OutputCollector {
       } else {
         // Trim the head so the retained window is byte-exact at the cap — a
         // diagnostic tail (an LSP server's stderr) must hold the LAST
-        // maxBytes regardless of how the stream was chunked.
-        this.chunks[0] = head.subarray(excess)
-        this.bytes -= excess
+        // maxBytes regardless of how the stream was chunked, advancing past UTF-8 continuation bytes.
+        let cut = excess
+        while (cut < head.length && ((head[cut] as number) & 0xC0) === 0x80) {
+          cut++
+        }
+        if (cut >= head.length) {
+          this.chunks.shift()
+          this.bytes -= head.length
+        } else {
+          this.chunks[0] = head.subarray(cut)
+          this.bytes -= cut
+        }
       }
       this.dropped = true
     }
@@ -158,18 +167,22 @@ export class OutputCollector {
       this.discardSpill()
       return
     }
-    if (this.spillFd === undefined) {
-      // Random suffix + O_EXCL + no-follow-equivalent ('wx' fails on any
-      // existing path, symlink or not) + owner-only mode: defeats spill-path
-      // prediction and symlink planting in shared tmp dirs.
-      this.spillFile = join(
-        this.spillDir,
-        `dsh-subprocess-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
-      )
-      this.spillFd = openSync(this.spillFile, 'wx', 0o600)
-      for (const prior of this.chunks) writeSync(this.spillFd, prior)
+    try {
+      if (this.spillFd === undefined) {
+        // Random suffix + O_EXCL + no-follow-equivalent ('wx' fails on any
+        // existing path, symlink or not) + owner-only mode: defeats spill-path
+        // prediction and symlink planting in shared tmp dirs.
+        this.spillFile = join(
+          this.spillDir,
+          `dsh-subprocess-${process.pid}-${++spillCounter}-${randomBytes(6).toString('hex')}-${this.label}.log`,
+        )
+        this.spillFd = openSync(this.spillFile, 'wx', 0o600)
+        for (const prior of this.chunks) writeSync(this.spillFd, prior)
+      }
+      writeSync(this.spillFd, chunk)
+    } catch {
+      this.discardSpill()
     }
-    writeSync(this.spillFd, chunk)
   }
 
   /** Stop spilling and remove the file once it can no longer hold the complete stream. */

@@ -270,17 +270,42 @@ function replacementRange(
  * (null/boolean/number/string, arrays, plain objects). Replaces
  * `node:util`'s isDeepStrictEqual to keep this module browser-safe.
  */
-function isDeepEqualJson(a: unknown, b: unknown): boolean {
-  if (a === b) return true
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
-    return a.every((item, i) => isDeepEqualJson(item, b[i]))
+const MAX_JSON_EQUAL_DEPTH = 1000
+
+interface CompareFrame {
+  readonly a: unknown
+  readonly b: unknown
+  readonly depth: number
+}
+
+function isDeepEqualJson(initialA: unknown, initialB: unknown): boolean {
+  if (initialA === initialB) return true
+  const stack: CompareFrame[] = [{ a: initialA, b: initialB, depth: 0 }]
+  while (stack.length > 0) {
+    // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by loop
+    const frame = stack.pop()!
+    const { a, b, depth } = frame
+    if (a === b) continue
+    if (depth > MAX_JSON_EQUAL_DEPTH) {
+      throw new Error(`JSON equality comparison exceeds maximum depth of ${MAX_JSON_EQUAL_DEPTH}`)
+    }
+    if (Array.isArray(a) || Array.isArray(b)) {
+      if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
+      for (let i = 0; i < a.length; i++) {
+        stack.push({ a: a[i], b: b[i], depth: depth + 1 })
+      }
+      continue
+    }
+    if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
+    const aKeys = Object.keys(a)
+    const bRecord = b as Record<string, unknown>
+    if (aKeys.length !== Object.keys(b).length) return false
+    for (const key of aKeys) {
+      if (!Object.hasOwn(b, key)) return false
+      stack.push({ a: (a as Record<string, unknown>)[key], b: bRecord[key], depth: depth + 1 })
+    }
   }
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false
-  const aKeys = Object.keys(a)
-  const bRecord = b as Record<string, unknown>
-  if (aKeys.length !== Object.keys(b).length) return false
-  return aKeys.every(key => Object.hasOwn(b, key) && isDeepEqualJson((a as Record<string, unknown>)[key], bRecord[key]))
+  return true
 }
 
 /** Restrict a tool-result replacement to one current result's content. */

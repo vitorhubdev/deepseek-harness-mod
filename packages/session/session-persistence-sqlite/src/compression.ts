@@ -105,6 +105,8 @@ function encodeData(serialized: string): string | Uint8Array {
   return compressed.length < bytes.length ? compressed : serialized
 }
 
+export const MAX_SCALAR_DATA_BYTES = 5 * 1024 * 1024
+
 function decodeData(value: string | Uint8Array, maxOutputLength?: number): string {
   if (typeof value === 'string') return value
   const decoded = maxOutputLength === undefined
@@ -210,7 +212,7 @@ function decodeScalarRow(row: EventRow): SessionEvent {
     type: row.type as SessionEvent['type'],
     seq: row.seq,
     time: row.time,
-    data: JSON.parse(decodeData(row.data)) as SessionEvent['data'],
+    data: JSON.parse(decodeData(row.data, MAX_SCALAR_DATA_BYTES)) as SessionEvent['data'],
     ...surfaceFields,
     ...row.ignorable === 1 ? { ignorable: true as const } : {},
   } as SessionEvent

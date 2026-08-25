@@ -62,8 +62,18 @@ export class SqliteStore implements PersistenceBackend<number> {
   private opened = false
   private pathReady: Promise<void> | undefined
   private ready: Promise<void> | undefined
+  private readonly stmts = new Map<string, StatementSync>()
 
   constructor(private readonly options: SqliteStoreOptions) {}
+
+  private getStmt(key: Parameters<typeof sql>[0]): StatementSync {
+    let stmt = this.stmts.get(key)
+    if (stmt === undefined) {
+      stmt = this.db.prepare(sql(key))
+      this.stmts.set(key, stmt)
+    }
+    return stmt
+  }
 
   /**
    * Validate filesystem ownership without importing or opening Node SQLite.
@@ -108,7 +118,7 @@ export class SqliteStore implements PersistenceBackend<number> {
       this.options.busyTimeoutMs,
     )
     try {
-      const row = this.db.prepare(sql('select-store-id')).get()
+      const row = this.getStmt('select-store-id').get()
       if (row === undefined) {
         throw new Error(`session database at "${this.databasePath}" has no valid store identity`)
       }
@@ -136,7 +146,7 @@ export class SqliteStore implements PersistenceBackend<number> {
     const snapshot = this.readTransaction(() => {
       const row = this.rowFor(id)
       if (row === undefined) return undefined
-      const eventRows = this.db.prepare(sql('select-events')).all(id).map(decodeEventRow)
+      const eventRows = this.getStmt('select-events').all(id).map(decodeEventRow)
       return { row, eventRows }
     })
     signal?.throwIfAborted()
@@ -210,13 +220,13 @@ export class SqliteStore implements PersistenceBackend<number> {
       validateSchemaForMutation(this.databaseConstructor, this.db, this.databasePath)
       const row = this.rowFor(meta.id)
       if (row === undefined) throw new Error(`session ${meta.id} metadata row is missing`)
-      const currentRows = this.db.prepare(sql('select-events')).all(meta.id).map(decodeEventRow)
+      const currentRows = this.getStmt('select-events').all(meta.id).map(decodeEventRow)
       const current = scanRows(currentRows)
       if (tornMarker !== undefined) {
         if (current.tornFrom !== tornMarker) {
           throw new Error(`session ${meta.id} repair is stale: physical tail no longer starts at seq ${tornMarker}`)
         }
-        this.db.prepare(sql('delete-events-from'))
+        this.getStmt('delete-events-from')
           .run(meta.id, tornMarker)
       } else if (current.tornFrom !== undefined) {
         throw new Error(`session ${meta.id} repair omitted current torn tail at seq ${current.tornFrom}`)
@@ -268,11 +278,12 @@ export class SqliteStore implements PersistenceBackend<number> {
     await Promise.allSettled([this.ready])
     if (!this.opened) return
     this.opened = false
+    this.stmts.clear()
     this.db.close()
   }
 
   private rowFor(id: SessionId): SessionRow | undefined {
-    const value = this.db.prepare(sql('select-session')).get(id)
+    const value = this.getStmt('select-session').get(id)
     return value === undefined ? undefined : decodeSessionRow(value)
   }
 
@@ -294,7 +305,7 @@ export class SqliteStore implements PersistenceBackend<number> {
   }
 
   private sessionRows(): SessionRow[] {
-    return this.db.prepare(sql('select-sessions')).all().map(decodeSessionRow)
+    return this.getStmt('select-sessions').all().map(decodeSessionRow)
   }
 
   private rollback(error: unknown, operation: string): never {
@@ -308,14 +319,14 @@ export class SqliteStore implements PersistenceBackend<number> {
   }
 
   private incrementRevision(id: SessionId): void {
-    const updated = this.db.prepare(sql('update-session-revision'))
+    const updated = this.getStmt('update-session-revision')
       .run(id)
     /* v8 ignore next -- materialized writes follow coordinator create(); other writes upsert in this transaction. */
     if (Number(updated.changes) !== 1) throw new Error(`session ${id} metadata row is missing`)
   }
 
   private tailRows(id: SessionId): EventRow[] {
-    const tail = this.db.prepare(sql('select-tail-events')).all(id, 2).map(decodeEventRow).reverse()
+    const tail = this.getStmt('select-tail-events').all(id, 2).map(decodeEventRow).reverse()
     if (tail.length === 0) return []
     return this.physicalSpanFrom(id, (tail[0] as EventRow).seq).eventRows
   }
@@ -326,7 +337,7 @@ export class SqliteStore implements PersistenceBackend<number> {
     fromSeq: number,
   ): { readonly base: number; readonly eventRows: EventRow[] } {
     const packedFloor = Math.max(0, fromSeq - MAX_PACKED_ROW_MEMBERS + 1)
-    const packedPredecessors = this.db.prepare(sql('select-packed-predecessors'))
+    const packedPredecessors = this.getStmt('select-packed-predecessors')
       .all(id, packedFloor, fromSeq)
       .map(decodeEventRow)
     let base = fromSeq
@@ -339,7 +350,7 @@ export class SqliteStore implements PersistenceBackend<number> {
         base = Math.min(base, predecessor.seq)
       }
     }
-    const eventRows = this.db.prepare(sql('select-events-from')).all(id, base).map(decodeEventRow)
+    const eventRows = this.getStmt('select-events-from').all(id, base).map(decodeEventRow)
     return { base, eventRows }
   }
 
@@ -351,7 +362,7 @@ export class SqliteStore implements PersistenceBackend<number> {
   }
 
   private insertStatement(): StatementSync {
-    return this.db.prepare(sql('insert-event'))
+    return this.getStmt('insert-event')
   }
 
   private insertRecord(insert: StatementSync, id: SessionId, record: BoundRecord): void {
@@ -368,7 +379,7 @@ export class SqliteStore implements PersistenceBackend<number> {
   }
 
   private writeRow(meta: SessionHeader): void {
-    this.db.prepare(sql('upsert-session')).run(
+    this.getStmt('upsert-session').run(
       meta.id,
       meta.version,
       meta.createdAt,

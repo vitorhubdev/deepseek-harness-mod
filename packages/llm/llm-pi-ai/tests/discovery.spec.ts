@@ -5,7 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { discoverModels } from '../src/discovery.ts'
+import { discoverModels, testModel } from '../src/discovery.ts'
 
 const servers: Server[] = []
 /** Credential variables a test set, cleared so the next one starts unset. */
@@ -379,5 +379,50 @@ describe('probe key format', () => {
 
     const headers = new Headers(requests[0]?.headers)
     expect(headers.has('authorization')).toBe(false)
+  })
+
+  it('resolves non-listable catalog routes from catalog without network calls even with explicit baseUrl and apiKey', async () => {
+    vi.stubGlobal('fetch', () => {
+      throw new Error('fetch should not be called for non-listable catalog routes')
+    })
+    const models = await discoverModels({
+      provider: 'anthropic',
+      baseURL: 'https://api.anthropic.com',
+      apiKey: 'sk-ant-x',
+    })
+    expect(models.length).toBeGreaterThan(0)
+    expect(models.map(m => m.id).sort()).toEqual(getBuiltinModels('anthropic').map(m => m.id).sort())
+  })
+
+  it('fails discovery with DISCOVERY_FAILED when explicit baseURL is unreachable for a catalog provider', async () => {
+    await expect(discoverModels({
+      provider: 'deepseek',
+      baseURL: 'http://127.0.0.1:9/v1',
+      apiKey: 'sk-test',
+    })).rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
+  })
+
+  it('treats whitespace-only baseURL as absent and answers from catalog without network', async () => {
+    vi.stubGlobal('fetch', () => {
+      throw new Error('fetch should not be called for whitespace baseURL')
+    })
+    const models = await discoverModels({
+      provider: 'deepseek',
+      baseURL: '   ',
+    })
+    expect(models.length).toBeGreaterThan(0)
+  })
+
+  it('returns protocol error for testModel on non-openai routes without making network calls', async () => {
+    vi.stubGlobal('fetch', () => {
+      throw new Error('fetch should not be called for non-openai testModel')
+    })
+    const result = await testModel({
+      provider: 'anthropic',
+      model: 'claude-3-5-sonnet-20241022',
+      apiKey: 'sk-ant-x',
+    })
+    expect(result.ok).toBe(false)
+    expect(result.error).toContain('has no test probe in this build')
   })
 })

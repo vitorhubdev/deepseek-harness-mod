@@ -29,8 +29,9 @@ import type {
   LlmModelTestRequest,
   LlmModelTestResult,
 } from '@deepseek-ai/dsh-llm'
+import type { Api, Model } from '@earendil-works/pi-ai'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { catalogModels, catalogProvider } from './catalog.ts'
+import { catalogModels, catalogProvider, sharedCatalogApi } from './catalog.ts'
 
 /**
  * Protocols whose model listing this module can read: the two that speak
@@ -194,6 +195,50 @@ function usableProbeKey(raw: string): string {
  *   redacted descriptor — so without this an already-configured route would be
  *   interrogated unauthenticated and answer 401.
  * @returns the advertised models in endpoint order.
+/**
+ * Derive the default base URL for one provider route from the installed catalog.
+ *
+ * Prefers the provider's top-level endpoint, then a model matching the route's
+ * wire protocol, then any listable protocol, and finally the first declared model.
+ * @param installed - the installed catalog models for the route.
+ * @param provider - provider route key.
+ * @param routeApi - effective protocol for the route.
+ * @returns the resolved default base URL, or undefined.
+ */
+export function resolveDefaultBaseURL(
+  installed: ReadonlyMap<string, Model<Api>> | undefined,
+  provider: string | undefined,
+  routeApi: string,
+): string | undefined {
+  if (provider === undefined) return undefined
+  const catalogBase = catalogProvider(provider)?.baseUrl
+  if (catalogBase !== undefined && catalogBase.length > 0) return catalogBase
+  if (installed === undefined || installed.size === 0) return undefined
+  const matching = [...installed.values()].find(m => m.api === routeApi)?.baseUrl
+  if (matching !== undefined && matching.length > 0) return matching
+  const listable = [...installed.values()].find(m => LISTABLE_PROTOCOLS.has(m.api))?.baseUrl
+  if (listable !== undefined && listable.length > 0) return listable
+  return [...installed.values()][0]?.baseUrl
+}
+
+function toDiscoveredList(installed: ReadonlyMap<string, Model<Api>>): readonly LlmDiscoveredModel[] {
+  return [...installed.values()].map(model => ({
+    id: model.id,
+    name: model.name,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+  }))
+}
+
+/**
+ * Interrogate one draft provider endpoint for the models it advertises.
+ * @param request - the endpoint, protocol, and one-shot credential to use.
+ * @param storedApiKey - the credential the named route already stored, asked
+ *   for only when the draft carries none and only on the path that reaches the
+ *   network. A configuration surface never holds a stored secret — it edits a
+ *   redacted descriptor — so without this an already-configured route would be
+ *   interrogated unauthenticated and answer 401.
+ * @returns the advertised models in endpoint order.
  * @throws LlmError when the protocol has no readable listing, the endpoint
  *   refuses or fails the request, or the reply is not a model listing.
  */
@@ -202,39 +247,30 @@ export async function discoverModels(
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
   const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
-  const hasExplicitBaseURL = request.baseURL !== undefined && request.baseURL.length > 0
-  const defaultBaseURL = request.provider !== undefined
-    ? (catalogProvider(request.provider)?.baseUrl ?? [...installed?.values() ?? []].find(m => m.api === 'openai-completions' || m.api === 'openai-responses')?.baseUrl ?? [...installed?.values() ?? []][0]?.baseUrl)
-    : undefined
-  const baseURL = hasExplicitBaseURL ? request.baseURL : defaultBaseURL
+  const trimmed = request.baseURL?.trim()
+  const hasExplicitBaseURL = trimmed !== undefined && trimmed.length > 0
+  const routeApi = request.api ?? (installed !== undefined ? sharedCatalogApi(installed) : undefined) ?? 'openai-completions'
+  const defaultBaseURL = resolveDefaultBaseURL(installed, request.provider, routeApi)
+  const baseURL = hasExplicitBaseURL ? trimmed : defaultBaseURL
+
+  // Fast path: when no explicit baseURL was given and no request apiKey was provided,
+  // catalog routes answer immediately without any network call or stored key IPC.
+  if (!hasExplicitBaseURL && request.apiKey === undefined && installed !== undefined && installed.size > 0) {
+    return toDiscoveredList(installed)
+  }
 
   let supplied = request.apiKey
   if (supplied === undefined && storedApiKey !== undefined) {
     try {
       supplied = await storedApiKey()
     } catch {
-      supplied = undefined
+      supplied = undefined /* credential-store read failed; probe unauthenticated rather than failing the interrogation */
     }
-  }
-  const hasKey = supplied !== undefined && supplied.trim().length > 0
-
-  if (!hasExplicitBaseURL && !hasKey && installed !== undefined && installed.size > 0) {
-    return [...installed.values()].map(model => ({
-      id: model.id,
-      name: model.name,
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-    }))
   }
 
   if (baseURL === undefined || baseURL.length === 0) {
     if (installed !== undefined && installed.size > 0) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      }))
+      return toDiscoveredList(installed)
     }
     throw new LlmError(
       `pi-ai ships no catalog for provider "${request.provider ?? ''}", so its models can only come from its`
@@ -243,18 +279,12 @@ export async function discoverModels(
     )
   }
 
-  const api = request.api ?? 'openai-completions'
-  if (!LISTABLE_PROTOCOLS.has(api)) {
+  if (!LISTABLE_PROTOCOLS.has(routeApi)) {
     if (installed !== undefined && installed.size > 0) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      }))
+      return toDiscoveredList(installed)
     }
     throw new LlmError(
-      `pi-ai protocol "${api}" has no model listing this build can read; enter this provider's models by hand`,
+      `pi-ai protocol "${routeApi}" has no model listing this build can read; enter this provider's models by hand`,
       'DISCOVERY_UNSUPPORTED',
     )
   }
@@ -276,24 +306,14 @@ export async function discoverModels(
     if (request.signal?.aborted) {
       throw new LlmError('model discovery aborted by caller', 'ABORTED', { cause: error })
     }
-    if (installed !== undefined && installed.size > 0) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      }))
+    if (installed !== undefined && installed.size > 0 && !hasExplicitBaseURL) {
+      return toDiscoveredList(installed)
     }
     throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
   }
   if (!response.ok) {
     if (installed !== undefined && installed.size > 0 && !hasExplicitBaseURL && response.status !== 401 && response.status !== 403) {
-      return [...installed.values()].map(model => ({
-        id: model.id,
-        name: model.name,
-        contextWindow: model.contextWindow,
-        maxTokens: model.maxTokens,
-      }))
+      return toDiscoveredList(installed)
     }
     throw new LlmError(
       `${url} answered ${response.status}${response.status === 401 || response.status === 403 ? '; check the API key' : ''}`,
@@ -343,12 +363,20 @@ export async function testModel(
   const started = Date.now()
   try {
     const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
-    const defaultBaseURL = request.provider !== undefined
-      ? (catalogProvider(request.provider)?.baseUrl ?? [...installed?.values() ?? []].find(m => m.api === 'openai-completions' || m.api === 'openai-responses')?.baseUrl ?? [...installed?.values() ?? []][0]?.baseUrl)
-      : undefined
-    const baseURL = (request.baseURL !== undefined && request.baseURL.length > 0)
-      ? request.baseURL
-      : defaultBaseURL
+    const trimmed = request.baseURL?.trim()
+    const hasExplicitBaseURL = trimmed !== undefined && trimmed.length > 0
+    const routeApi = request.api ?? (installed !== undefined ? sharedCatalogApi(installed) : undefined) ?? 'openai-completions'
+
+    if (routeApi !== 'openai-completions' && routeApi !== 'openai-responses') {
+      return {
+        ok: false,
+        latencyMs: 0,
+        error: `protocol "${routeApi}" has no test probe in this build`,
+      }
+    }
+
+    const defaultBaseURL = resolveDefaultBaseURL(installed, request.provider, routeApi)
+    const baseURL = hasExplicitBaseURL ? trimmed : defaultBaseURL
 
     if (baseURL === undefined || baseURL.length === 0) {
       return {
@@ -357,15 +385,14 @@ export async function testModel(
         error: 'test needs a baseURL or a registered provider',
       }
     }
-    const api = request.api ?? 'openai-completions'
-    if (api !== 'openai-completions' && api !== 'openai-responses') {
-      return {
-        ok: false,
-        latencyMs: 0,
-        error: `protocol "${api}" has no test probe in this build`,
+    let supplied = request.apiKey
+    if (supplied === undefined && storedApiKey !== undefined) {
+      try {
+        supplied = await storedApiKey()
+      } catch {
+        supplied = undefined /* credential-store read failed */
       }
     }
-    const supplied = request.apiKey ?? await storedApiKey?.()
     const apiKey = supplied === undefined || supplied.length === 0 ? undefined : usableProbeKey(supplied)
     const url = `${baseURL.replace(/\/+$/, '')}/chat/completions`
     const headers: Record<string, string> = {

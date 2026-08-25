@@ -17,6 +17,7 @@ import {
   IconPersonalizationOutline16, IconSettingsOutline16,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SettingsRootComponentProps, SettingsSectionRow } from './shell-contract.ts'
+import { APP_VERSION_LABEL, APP_VERSION_TAG } from './version.ts'
 import css from './SettingsRoot.module.css'
 
 /** Nav glyph by section id; unknown ids fall back to the settings gear. */
@@ -78,10 +79,16 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
               </button>
             ))}
           </div>
+          <div className={css.navFooter}>
+            <span className={css.versionText}>{APP_VERSION_LABEL}</span>
+          </div>
         </nav>
         <div className={css.content}>
           <div className={css.header}>
-            <div className={css.actions}>{renderSlot('settings.action', {})}</div>
+            <div className={css.actions}>
+              <span className={css.versionBadge}>{APP_VERSION_TAG}</span>
+              {renderSlot('settings.action', {})}
+            </div>
             <button ref={closeButton} type="button" className={css.close} onClick={onClose}>
               <IconCloseOutline16 size={14} />
               <span className={css.hiddenLabel}>{renderSlot('settings.close', {})}</span>

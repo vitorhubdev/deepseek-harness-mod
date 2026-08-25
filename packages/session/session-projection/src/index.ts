@@ -453,11 +453,23 @@ export class SessionProjectionRegistry extends Service {
     }
   }
 
+  /** Fold one unit from init over a range of `events` [from, to), producing a cell watermarked at the last folded event. */
+  private buildCellRange(def: ErasedDefinition, events: readonly SessionEvent[], from: number, to: number): UnitCell {
+    let state = def.init()
+    const limit = Math.min(to, events.length)
+    let lastSeq = -1
+    for (let i = from; i < limit; i++) {
+      // oxlint-disable-next-line typescript/no-non-null-assertion -- bounded by limit
+      const event = events[i]!
+      state = def.apply(state, event)
+      lastSeq = event.seq
+    }
+    return { state, observedSeq: lastSeq }
+  }
+
   /** Fold one unit from init over `events`, producing a cell watermarked at the last folded event. */
   private buildCell(def: ErasedDefinition, events: readonly SessionEvent[]): UnitCell {
-    let state = def.init()
-    for (const event of events) state = def.apply(state, event)
-    return { state, observedSeq: (events.at(-1)?.seq ?? -1) }
+    return this.buildCellRange(def, events, 0, events.length)
   }
 
   /** Read (or lazily build, folding the full in-memory log) one unit's cell. */
@@ -477,7 +489,7 @@ export class SessionProjectionRegistry extends Service {
       if (cell === undefined) {
         // Late build mid-stream: fold history before this event (seq = log
         // index, so the prefix slice is exact), then take the normal gate.
-        cell = this.buildCell(registration.def, session.events.slice(0, event.seq))
+        cell = this.buildCellRange(registration.def, session.events, 0, event.seq)
         registration.cells.set(session, cell)
       }
       const next = registration.def.apply(cell.state, event)

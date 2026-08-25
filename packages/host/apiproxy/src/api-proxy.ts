@@ -3327,37 +3327,42 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         const { settingsNs, provider, baseURL, api, apiKey, model } = request.payload
         const started = Date.now()
         try {
-          // Prefer the adapter's own streaming path when the provider is already
-          // registered — it honors stored credentials and settings overrides.
+          // Prefer the adapter's own streaming path when the provider already
+          // has this exact model configured — it honors stored credentials and settings overrides.
           const active = provider !== undefined && ctx.llm.listProviders().some(entry => entry.id === provider)
           if (active) {
-            const pingMessage = createUserMessage({
-              content: [{ type: 'text', text: 'ping' }],
-              source: { kind: 'user' },
-            })
-            const stream = ctx.llm.stream({
-              provider,
-              model,
-              messages: [pingMessage],
-              maxTokens: 64,
-              ...signal === undefined ? {} : { signal },
-            })
-            for await (const chunk of stream) {
-              if (chunk.type === 'finish') {
-                const latencyMs = Date.now() - started
-                if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') {
-                  return ok(request, { ok: false, latencyMs, error: chunk.reason.failure.message })
+            try {
+              const pingMessage = createUserMessage({
+                content: [{ type: 'text', text: 'ping' }],
+                source: { kind: 'user' },
+              })
+              const stream = ctx.llm.stream({
+                provider,
+                model,
+                messages: [pingMessage],
+                maxTokens: 64,
+                ...signal === undefined ? {} : { signal },
+              })
+              for await (const chunk of stream) {
+                if (chunk.type === 'finish') {
+                  const latencyMs = Date.now() - started
+                  if (chunk.reason.kind === 'error' || chunk.reason.kind === 'aborted') {
+                    return ok(request, { ok: false, latencyMs, error: chunk.reason.failure.message })
+                  }
+                  return ok(request, { ok: true, latencyMs })
                 }
-                return ok(request, { ok: true, latencyMs })
+                // First delta is enough to prove the model answers; latency is what matters.
+                if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
+                  const latencyMs = Date.now() - started
+                  return ok(request, { ok: true, latencyMs })
+                }
               }
-              // First delta is enough to prove the model answers; latency is what matters.
-              if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
-                const latencyMs = Date.now() - started
-                return ok(request, { ok: true, latencyMs })
-              }
+              const latencyMs = Date.now() - started
+              return ok(request, { ok: true, latencyMs })
+            } catch {
+              // The model is not yet configured in runtime (e.g. candidate model in discovery dialog).
+              // Fall through to the settings namespace / endpoint testModel probe below.
             }
-            const latencyMs = Date.now() - started
-            return ok(request, { ok: true, latencyMs })
           }
 
           // Try the settings namespace's registered model test seam. This honors

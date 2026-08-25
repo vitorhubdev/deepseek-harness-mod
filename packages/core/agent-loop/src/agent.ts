@@ -65,6 +65,7 @@ export class ReactLoopAgent implements Agent {
   readonly inbox: Inbox
   private phase: Phase
   private activityDone: Promise<void> = Promise.resolve()
+  private activityGen = 0
 
   /** The agent-scoped registration boundary; the lifecycle owner unwinds it after the driver exits. */
   readonly scope: Scope
@@ -180,6 +181,7 @@ export class ReactLoopAgent implements Agent {
       }
       return
     }
+    this.activityGen++
     const driver = Promise.withResolvers<void>()
     this.activityDone = driver.promise
     this.setPhase({
@@ -193,10 +195,11 @@ export class ReactLoopAgent implements Agent {
   }
 
   async whenIdle(): Promise<void> {
-    let activity: Promise<void>
+    let gen: number
     do {
-      await (activity = this.activityDone)
-    } while (activity !== this.activityDone)
+      gen = this.activityGen
+      await this.activityDone
+    } while (gen !== this.activityGen)
   }
 
   /** Report one failure at its live boundary, then preserve it for driver containment. */
