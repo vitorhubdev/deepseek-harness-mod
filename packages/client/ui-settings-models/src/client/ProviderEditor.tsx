@@ -43,27 +43,54 @@ const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
 
 /** Known default public base URLs for built-in providers. */
 const DEFAULT_PROVIDER_BASE_URLS: Readonly<Record<string, string>> = {
-  deepseek: 'https://api.deepseek.com',
-  openai: 'https://api.openai.com/v1',
-  openrouter: 'https://openrouter.ai/api/v1',
-  anthropic: 'https://api.anthropic.com',
-  groq: 'https://api.groq.com/openai/v1',
-  mistral: 'https://api.mistral.ai/v1',
-  together: 'https://api.together.xyz/v1',
-  xai: 'https://api.x.ai/v1',
-  gemini: 'https://generativelanguage.googleapis.com/v1beta',
-  cohere: 'https://api.cohere.com/v2',
-  cerebras: 'https://api.cerebras.ai/v1',
-  perplexity: 'https://api.perplexity.ai',
-  ollama: 'http://localhost:11434/v1',
-  lmstudio: 'http://localhost:1234/v1',
-  github: 'https://models.inference.ai.azure.com',
-  siliconflow: 'https://api.siliconflow.cn/v1',
-  novita: 'https://api.novita.ai/v3/openai',
-  moonshot: 'https://api.moonshot.cn/v1',
-  zhipu: 'https://open.bigmodel.cn/api/paas/v4',
-  minimax: 'https://api.minimax.chat/v1',
-  baichuan: 'https://api.baichuan-ai.com/v1',
+  'amazon-bedrock': 'https://bedrock-runtime.us-east-1.amazonaws.com',
+  'ant-ling': 'https://api.ant-ling.com/v1',
+  'anthropic': 'https://api.anthropic.com',
+  'azure-openai-responses': 'https://models.inference.ai.azure.com',
+  'baichuan': 'https://api.baichuan-ai.com/v1',
+  'cerebras': 'https://api.cerebras.ai/v1',
+  'cloudflare-ai-gateway': 'https://gateway.ai.cloudflare.com/v1',
+  'cloudflare-workers-ai': 'https://api.cloudflare.com/client/v4/accounts',
+  'cohere': 'https://api.cohere.com/v2',
+  'deepseek': 'https://api.deepseek.com',
+  'fireworks': 'https://api.fireworks.ai/inference',
+  'gemini': 'https://generativelanguage.googleapis.com/v1beta',
+  'github': 'https://models.inference.ai.azure.com',
+  'github-copilot': 'https://api.individual.githubcopilot.com',
+  'google': 'https://generativelanguage.googleapis.com/v1beta',
+  'google-vertex': 'https://aiplatform.googleapis.com',
+  'groq': 'https://api.groq.com/openai/v1',
+  'huggingface': 'https://router.huggingface.co/v1',
+  'kimi-coding': 'https://api.kimi.com/coding',
+  'lmstudio': 'http://localhost:1234/v1',
+  'minimax': 'https://api.minimax.io/anthropic',
+  'minimax-cn': 'https://api.minimaxi.com/anthropic',
+  'mistral': 'https://api.mistral.ai/v1',
+  'moonshot': 'https://api.moonshot.cn/v1',
+  'moonshotai': 'https://api.moonshot.ai/v1',
+  'moonshotai-cn': 'https://api.moonshot.cn/v1',
+  'novita': 'https://api.novita.ai/v3/openai',
+  'nvidia': 'https://integrate.api.nvidia.com/v1',
+  'ollama': 'http://localhost:11434/v1',
+  'openai': 'https://api.openai.com/v1',
+  'openai-codex': 'https://chatgpt.com/backend-api',
+  'opencode': 'https://opencode.ai/zen/v1',
+  'opencode-go': 'https://opencode.ai/zen/go/v1',
+  'openrouter': 'https://openrouter.ai/api/v1',
+  'perplexity': 'https://api.perplexity.ai',
+  'qwen-token-plan': 'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
+  'qwen-token-plan-cn': 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
+  'siliconflow': 'https://api.siliconflow.cn/v1',
+  'together': 'https://api.together.ai/v1',
+  'vercel-ai-gateway': 'https://ai-gateway.vercel.sh',
+  'xai': 'https://api.x.ai/v1',
+  'xiaomi': 'https://api.xiaomimimo.com/v1',
+  'xiaomi-token-plan-ams': 'https://token-plan-ams.xiaomimimo.com/v1',
+  'xiaomi-token-plan-cn': 'https://token-plan-cn.xiaomimimo.com/v1',
+  'xiaomi-token-plan-sgp': 'https://token-plan-sgp.xiaomimimo.com/v1',
+  'zai': 'https://api.z.ai/api/coding/paas/v4',
+  'zai-coding-cn': 'https://open.bigmodel.cn/api/coding/paas/v4',
+  'zhipu': 'https://open.bigmodel.cn/api/paas/v4',
 }
 
 /** Props of {@link ProviderEditor}. */
@@ -264,11 +291,9 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
   // What the form currently shows, which is what an interrogation must ask:
   // an edited-but-unsaved endpoint, and a key typed but not yet stored.
   const probeApi = stringAt(draft, 'api') ?? stringAt(fallback, 'api')
-  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL')
+  const probeBaseURL = stringAt(draft, 'baseURL') ?? stringAt(fallback, 'baseURL') ?? knownDefaultBaseUrl
   const probe = {
     settingsNs: namespace.ns,
-    // Naming the route lets an adapter that already describes it answer from
-    // its own registry — better metadata, no network call, no endpoint needed.
     provider: props.provider,
     ...probeBaseURL === undefined ? {} : { baseURL: probeBaseURL },
     ...probeApi === undefined ? {} : { api: probeApi },
@@ -461,7 +486,7 @@ export function ProviderEditor(props: ProviderEditorProps): ReactNode {
                   value={stringAt(draft, 'baseURL') ?? ''}
                   placeholder={layout === 'deepseek'
                     ? DEEPSEEK_PUBLIC_BASE_URL
-                    : stringAt(fallback, 'baseURL') ?? t('baseUrlDefault')}
+                    : stringAt(fallback, 'baseURL') ?? knownDefaultBaseUrl ?? t('baseUrlDefault')}
                   aria-label={t('baseUrl')}
                   disabled={disabled}
                   onChange={(event) => {

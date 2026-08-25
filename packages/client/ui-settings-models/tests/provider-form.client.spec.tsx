@@ -531,7 +531,7 @@ describe('endpoint interrogation', () => {
     fireEvent.click(screen.getByText(en.fetchModels))
 
     await waitFor(() => { expect(discover).toHaveBeenCalled() })
-    expect(firstProbe(discover)).toEqual({ settingsNs: 'llm-pi-ai', provider: 'openai' })
+    expect(firstProbe(discover)).toEqual({ settingsNs: 'llm-pi-ai', provider: 'openai', baseURL: 'https://api.openai.com/v1' })
   })
 
   it('keeps the create card asking only once it has an endpoint', () => {

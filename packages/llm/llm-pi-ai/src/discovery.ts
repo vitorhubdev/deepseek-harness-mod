@@ -30,7 +30,7 @@ import type {
   LlmModelTestResult,
 } from '@deepseek-ai/dsh-llm'
 import { attributionHeaders } from '@deepseek-ai/dsh-llm'
-import { catalogModels } from './catalog.ts'
+import { catalogModels, catalogProvider } from './catalog.ts'
 
 /**
  * Protocols whose model listing this module can read: the two that speak
@@ -202,7 +202,31 @@ export async function discoverModels(
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
   const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
-  const baseURL = request.baseURL
+  const hasExplicitBaseURL = request.baseURL !== undefined && request.baseURL.length > 0
+  const defaultBaseURL = request.provider !== undefined
+    ? (catalogProvider(request.provider)?.baseUrl ?? [...installed?.values() ?? []].find(m => m.api === 'openai-completions' || m.api === 'openai-responses')?.baseUrl ?? [...installed?.values() ?? []][0]?.baseUrl)
+    : undefined
+  const baseURL = hasExplicitBaseURL ? request.baseURL : defaultBaseURL
+
+  let supplied = request.apiKey
+  if (supplied === undefined && storedApiKey !== undefined) {
+    try {
+      supplied = await storedApiKey()
+    } catch {
+      supplied = undefined
+    }
+  }
+  const hasKey = supplied !== undefined && supplied.trim().length > 0
+
+  if (!hasExplicitBaseURL && !hasKey && installed !== undefined && installed.size > 0) {
+    return [...installed.values()].map(model => ({
+      id: model.id,
+      name: model.name,
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+    }))
+  }
+
   if (baseURL === undefined || baseURL.length === 0) {
     if (installed !== undefined && installed.size > 0) {
       return [...installed.values()].map(model => ({
@@ -236,7 +260,6 @@ export async function discoverModels(
   }
 
   const url = listingUrl(baseURL)
-  const supplied = request.apiKey ?? await storedApiKey?.()
   const apiKey = supplied === undefined ? undefined : usableProbeKey(supplied)
   let response: Response
   try {
@@ -264,7 +287,7 @@ export async function discoverModels(
     throw new LlmError(`could not reach ${url}`, 'DISCOVERY_FAILED', { cause: error })
   }
   if (!response.ok) {
-    if (installed !== undefined && installed.size > 0 && response.status !== 401 && response.status !== 403) {
+    if (installed !== undefined && installed.size > 0 && !hasExplicitBaseURL && response.status !== 401 && response.status !== 403) {
       return [...installed.values()].map(model => ({
         id: model.id,
         name: model.name,
@@ -319,7 +342,15 @@ export async function testModel(
 ): Promise<LlmModelTestResult> {
   const started = Date.now()
   try {
-    if (request.baseURL === undefined || request.baseURL.length === 0) {
+    const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
+    const defaultBaseURL = request.provider !== undefined
+      ? (catalogProvider(request.provider)?.baseUrl ?? [...installed?.values() ?? []].find(m => m.api === 'openai-completions' || m.api === 'openai-responses')?.baseUrl ?? [...installed?.values() ?? []][0]?.baseUrl)
+      : undefined
+    const baseURL = (request.baseURL !== undefined && request.baseURL.length > 0)
+      ? request.baseURL
+      : defaultBaseURL
+
+    if (baseURL === undefined || baseURL.length === 0) {
       return {
         ok: false,
         latencyMs: 0,
@@ -336,7 +367,7 @@ export async function testModel(
     }
     const supplied = request.apiKey ?? await storedApiKey?.()
     const apiKey = supplied === undefined || supplied.length === 0 ? undefined : usableProbeKey(supplied)
-    const url = `${request.baseURL.replace(/\/+$/, '')}/chat/completions`
+    const url = `${baseURL.replace(/\/+$/, '')}/chat/completions`
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       accept: 'application/json',
