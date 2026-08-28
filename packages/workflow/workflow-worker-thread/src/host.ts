@@ -335,7 +335,6 @@ export class WorkerRun implements WorkflowRun {
       this.post(HostToWorkerType.ChildStartError, { callId, rendered: initialFailure.rendered })
       return
     }
-    this.hostStarted += 1
     const task = this.startChild(callId, request)
     this.pendingStarts.add(task)
     void task.then(
@@ -382,6 +381,7 @@ export class WorkerRun implements WorkflowRun {
       return
     }
 
+    this.hostStarted += 1
     const record: ChildRecord = { run }
     this.children.set(callId, record)
     // Attach result forwarding before publishing the child handle. Because the

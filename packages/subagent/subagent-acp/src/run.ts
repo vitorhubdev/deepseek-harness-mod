@@ -229,7 +229,6 @@ export async function startAcpRun(request: SubagentStartRequest, spec: AcpRunSpe
   )
   spawnFailed.catch(() => { /* observed by the startup race; never unhandled */ })
 
-  // Startup rollback and the published handle share one process teardown.
   let processDisposal: Promise<void> | undefined
   const disposeProcess = (): Promise<void> => (processDisposal ??= disposeAcpChild(child, spec.disposeEofGraceMs))
 

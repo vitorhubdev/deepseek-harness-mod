@@ -140,10 +140,12 @@ export async function withFileLock<T>(
     } catch (error) {
       if (!await isLockContention(error, lockPath)) throw error
     }
-    if (Date.now() >= deadline) {
+    const remaining = deadline - Date.now()
+    if (remaining <= 0) {
       throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)
     }
-    await new Promise(resolve => setTimeout(resolve, delay))
+    const sleepMs = Math.min(delay, remaining)
+    await new Promise(resolve => setTimeout(resolve, sleepMs))
     delay = Math.min(delay * 2, LOCK_RETRY_MAX_MS)
   }
   try {

@@ -256,11 +256,7 @@ export class LocalJobRegistry extends JobRegistry {
           }
           const onAbort = (): void => {
             job.waitResolvers.delete(onSettled)
-            // A settled job cannot reach here: settlement releases every waiter
-            // before it announces completion, and each released waiter detaches
-            // this listener in the same synchronous span, so nothing that reacts
-            // to a settlement can abort a wait the settlement already owed.
-            if (timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
+            if (isTerminal(job.status) || timeoutOf(d.signal, TASK_WAIT_TIMEOUT) !== undefined) {
               resolve()
             } else {
               uncount()

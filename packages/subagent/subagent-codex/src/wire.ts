@@ -243,7 +243,7 @@ export class CodexAppServerWire {
 
   constructor(
     private readonly input: Readable,
-    output: Writable,
+    private readonly output: Writable,
     private readonly permissionMode: CodexPermissionMode,
   ) {
     this.transport = new JsonRpcLineTransport(input, output)
@@ -459,6 +459,8 @@ export class CodexAppServerWire {
     if (this.closed) return
     this.closed = true
     this.input.off('end', this.onInputEnd)
+    this.input.off('error', this.onInputError)
+    this.output.off('error', this.onOutputError)
     this.transport.close()
   }
 

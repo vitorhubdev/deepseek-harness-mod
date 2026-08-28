@@ -43,15 +43,17 @@ export class RuntimeContextProjection {
       }
     }
 
-    ctx.on('session/event', (subject, event) => {
-      if (subject !== session) return
-      if (event.type === 'user/message' && isOwned(event.data)) {
-        this.retained = { seq: event.seq, text: textOf(event.data) }
-      } else if (this.retained
-        && isReplacementSurfaceEvent(event)
-        && event.sourceEventSeqs?.includes(this.retained.seq) === true) {
-        this.retained = null
-      }
+    ctx.effect(() => {
+      return ctx.on('session/event', (subject, event) => {
+        if (subject !== session) return
+        if (event.type === 'user/message' && isOwned(event.data)) {
+          this.retained = { seq: event.seq, text: textOf(event.data) }
+        } else if (this.retained
+          && isReplacementSurfaceEvent(event)
+          && event.sourceEventSeqs?.includes(this.retained.seq) === true) {
+          this.retained = null
+        }
+      })
     })
   }
 

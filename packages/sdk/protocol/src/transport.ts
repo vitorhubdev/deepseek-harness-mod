@@ -241,13 +241,17 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
     const pending = this.pending.get(id)
     if (!pending) return
     this.pending.delete(id)
-    if (frame.error && typeof frame.error === 'object') {
-      const error = frame.error as Record<string, unknown>
-      pending.reject(new JsonRpcResponseError(
-        typeof error.code === 'number' ? error.code : undefined,
-        typeof error.message === 'string' ? error.message : 'JSON-RPC error',
-        error.data,
-      ))
+    if (frame.error !== undefined) {
+      if (frame.error !== null && typeof frame.error === 'object') {
+        const error = frame.error as Record<string, unknown>
+        pending.reject(new JsonRpcResponseError(
+          typeof error.code === 'number' ? error.code : undefined,
+          typeof error.message === 'string' ? error.message : 'JSON-RPC error',
+          error.data,
+        ))
+      } else {
+        pending.reject(new JsonRpcResponseError(undefined, String(frame.error), undefined))
+      }
       return
     }
     pending.resolve(frame.result)

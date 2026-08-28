@@ -62,6 +62,7 @@ export class ConnectionController {
   private generation = 0
   private attempt = 0
   private current: AbortController | null = null
+  private idle: AbortController | null = null
   private running = false
   private lastState: ConnectionState | null = null
   private readonly config: Required<ConnectionConfig>
@@ -86,6 +87,8 @@ export class ConnectionController {
     this.running = false
     this.current?.abort()
     this.current = null
+    this.idle?.abort()
+    this.idle = null
   }
 
   private backoffDelay(attempt: number): number {
@@ -136,22 +139,26 @@ export class ConnectionController {
         // subscribed baseline. The timeout guards against a carrier that never fires onOpen
         // (see ConnectionConfig.streamOpenTimeoutMs).
         const timeout = new AbortController()
-        const [description] = await Promise.all([
-          this.api.host.describe({}),
-          Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
-        ])
-        timeout.abort()
-        const descriptionResult = description.result
-        if (!descriptionResult.ok) {
-          throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
-        }
-        if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
-        this.attempt = 0
-        this.emitState('connected')
-        // A state sink may synchronously stop this controller. Do not publish
-        // a description for a generation that no longer exists afterward.
-        if (this.isGenerationActive(ac)) {
-          this.callSink(() => { this.sinks.onConnected?.(descriptionResult.value) })
+        try {
+          const [description] = await Promise.all([
+            this.api.host.describe({}),
+            Promise.race([streamsOpen, sleep(this.config.streamOpenTimeoutMs, timeout.signal)]),
+          ])
+          timeout.abort()
+          const descriptionResult = description.result
+          if (!descriptionResult.ok) {
+            throw new Error(`host.describe failed: ${descriptionResult.error.code}: ${descriptionResult.error.message}`)
+          }
+          if (ac.signal.aborted) throw new Error('generation aborted during readiness handshake')
+          this.attempt = 0
+          this.emitState('connected')
+          // A state sink may synchronously stop this controller. Do not publish
+          // a description for a generation that no longer exists afterward.
+          if (this.isGenerationActive(ac)) {
+            this.callSink(() => { this.sinks.onConnected?.(descriptionResult.value) })
+          }
+        } finally {
+          timeout.abort()
         }
       } catch {
         // Transport failure: treat as generation failure, fall through to the shared backoff.
@@ -164,7 +171,12 @@ export class ConnectionController {
       this.attempt += 1
       console.warn(`[web-runtime] connection lost, retry #${this.attempt}`)
       const idle = new AbortController()
-      await sleep(this.backoffDelay(this.attempt), idle.signal)
+      this.idle = idle
+      try {
+        await sleep(this.backoffDelay(this.attempt), idle.signal)
+      } finally {
+        if (this.idle === idle) this.idle = null
+      }
     }
   }
 

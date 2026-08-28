@@ -269,8 +269,9 @@ function snapshotWindowsProcesses(bindings: Win32Bindings): ProcessEntry[] {
      the guard mirrors POSIX's unreadable-proc tolerance and isInvalidHandle is unit-tested. */
   if (isInvalidHandle(snapshot)) return []
   const entries: ProcessEntry[] = []
+  let entry: NativePtr | undefined
   try {
-    const entry = allocNative(PROCESSENTRY32W, 1)
+    entry = allocNative(PROCESSENTRY32W, 1)
     koffi.encode(entry, 'uint32', PROCESSENTRY32W.size)
     let ok = bindings.process32FirstW(snapshot, entry)
     while (ok !== 0) {
@@ -282,6 +283,7 @@ function snapshotWindowsProcesses(bindings: Win32Bindings): ProcessEntry[] {
       ok = bindings.process32NextW(snapshot, entry)
     }
   } finally {
+    if (entry !== undefined) koffi.free(entry as unknown as Parameters<typeof koffi.free>[0])
     bindings.closeHandle(snapshot)
   }
   return entries
@@ -292,11 +294,15 @@ function windowsProcessState(bindings: Win32Bindings, pid: number): WindowsProce
   const { FILETIME } = win32Structs()
   const handle = bindings.openProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid)
   if (isInvalidHandle(handle)) return undefined
+  let creation: NativePtr | undefined
+  let exit: NativePtr | undefined
+  let kernel: NativePtr | undefined
+  let user: NativePtr | undefined
   try {
-    const creation = allocNative(FILETIME, 1)
-    const exit = allocNative(FILETIME, 1)
-    const kernel = allocNative(FILETIME, 1)
-    const user = allocNative(FILETIME, 1)
+    creation = allocNative(FILETIME, 1)
+    exit = allocNative(FILETIME, 1)
+    kernel = allocNative(FILETIME, 1)
+    user = allocNative(FILETIME, 1)
     /* v8 ignore next -- a GetProcessTimes failure after a successful open races process exit and
        cannot be staged deterministically; the absent-process path is covered and the caller
        treats undefined as a detector miss. */
@@ -311,6 +317,10 @@ function windowsProcessState(bindings: Win32Bindings, pid: number): WindowsProce
       active: wait === WAIT_TIMEOUT,
     }
   } finally {
+    if (creation !== undefined) koffi.free(creation as unknown as Parameters<typeof koffi.free>[0])
+    if (exit !== undefined) koffi.free(exit as unknown as Parameters<typeof koffi.free>[0])
+    if (kernel !== undefined) koffi.free(kernel as unknown as Parameters<typeof koffi.free>[0])
+    if (user !== undefined) koffi.free(user as unknown as Parameters<typeof koffi.free>[0])
     bindings.closeHandle(handle)
   }
 }

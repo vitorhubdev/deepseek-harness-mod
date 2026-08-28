@@ -86,6 +86,7 @@ export class ToolResultPruner extends Service {
 
     const removedStart = this.config.headChars
     const removedEnd = totalChars - this.config.tailChars
+    if (removedEnd <= removedStart) return null
     const pruned: ContentBlock[] = []
     let consumed = 0
     let markerInserted = false
@@ -145,6 +146,7 @@ export class ToolResultPruner extends Service {
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
       const result = event.data.message.content[0]
+      if (result === undefined) continue
       const content = this.pruneContent(result.content)
       if (content === null) continue
       const charsBefore = this.measureContent(result.content)
