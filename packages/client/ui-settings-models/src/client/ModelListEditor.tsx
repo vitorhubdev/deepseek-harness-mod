@@ -21,8 +21,11 @@ import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
 import type { ModelsOperations } from './operations.ts'
-import { messageOf } from './store.ts'
 import type { en } from './locales.ts'
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
 import styles from './ModelsSection.module.css'
 
 /**
