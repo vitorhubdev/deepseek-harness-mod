@@ -115,6 +115,7 @@ mise.toml
 # ── 10. Testes Temporários e Cobertura de Código ───────────────────────────
 coverage/
 **/coverage/
+.coverage-times.json
 .nyc_output/
 .artifacts/
 .playwright-mcp/
