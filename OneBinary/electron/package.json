@@ -7,10 +7,10 @@
   "main": "dist/main.js",
   "scripts": {
     "dev": "tsx src/main.ts",
-    "build": "tsc -b && electron-builder --config electron-builder.yml",
-    "build:win": "tsc -b && electron-builder --win portable --config electron-builder.yml",
-    "build:dir": "tsc -b && electron-builder --dir --config electron-builder.yml",
-    "typecheck": "tsc -b --noEmit"
+    "build": "tsc -p tsconfig.json && electron-builder --config electron-builder.yml",
+    "build:win": "tsc -p tsconfig.json && electron-builder --win portable --config electron-builder.yml",
+    "build:dir": "tsc -p tsconfig.json && electron-builder --dir --config electron-builder.yml",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@deepseek-ai/dsh-app-boot": "workspace:^",
