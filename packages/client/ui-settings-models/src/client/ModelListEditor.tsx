@@ -16,10 +16,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { DiscoveredModelView, IApiClient } from '@deepseek-ai/dsh-api-remotes/client'
+import type { LlmDiscoveredModel } from '@deepseek-ai/dsh-api-remotes/client'
 import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formatCapacity, parseCapacity } from './DeepSeekModelsEditor.tsx'
 import type { DeepSeekModelDraft } from './DeepSeekModelsEditor.tsx'
+import type { ModelsOperations } from './operations.ts'
 import { messageOf } from './store.ts'
 import type { en } from './locales.ts'
 import styles from './ModelsSection.module.css'
@@ -81,8 +82,8 @@ export interface ModelListEditorProps {
    * told what the field already says.
    */
   probeBlocked?: keyof typeof en | undefined
-  /** Wire face the fetch action calls. */
-  api: Pick<IApiClient, 'llm'>
+  /** The Host operations whose interrogation answers the fetch and test actions. */
+  operations: ModelsOperations
   /** Section copy. */
   t: (key: keyof typeof en) => string
   /** Disable every control (read-only deployment or a pending write). */
@@ -163,7 +164,7 @@ function capacitySpelling(value: number | undefined): string {
 }
 
 /** Adopt a candidate, keeping whatever capacities the provider disclosed. */
-function adopt(candidate: DiscoveredModelView): ModelDraft {
+function adopt(candidate: LlmDiscoveredModel): ModelDraft {
   return {
     id: candidate.id,
     ...candidate.name === undefined ? {} : { name: candidate.name },
@@ -173,7 +174,7 @@ function adopt(candidate: DiscoveredModelView): ModelDraft {
 }
 
 /** Whether a discovered model is free-tier (id or name contains "free"). */
-function isFreeModel(candidate: DiscoveredModelView): boolean {
+function isFreeModel(candidate: LlmDiscoveredModel): boolean {
   return /free/i.test(candidate.id) || (candidate.name !== undefined && /free/i.test(candidate.name))
 }
 
@@ -190,10 +191,10 @@ type TestState =
  * @returns the model-list editor.
  */
 export function ModelListEditor(props: ModelListEditorProps): ReactNode {
-  const { models, onChange, probe, api, t, disabled } = props
+  const { models, onChange, probe, operations, t, disabled } = props
   const [busy, setBusy] = useState(false)
   const [failure, setFailure] = useState<string | undefined>(undefined)
-  const [candidates, setCandidates] = useState<readonly DiscoveredModelView[] | undefined>(undefined)
+  const [candidates, setCandidates] = useState<readonly LlmDiscoveredModel[] | undefined>(undefined)
   const [picked, setPicked] = useState<ReadonlySet<string>>(new Set())
   const [onlyFree, setOnlyFree] = useState(false)
   const [testStates, setTestStates] = useState<Record<string, TestState>>({})
@@ -271,8 +272,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }))
   }
 
-  const probeRequest = {
-    settingsNs: probe.settingsNs,
+  const discoverRequest = {
     ...probe.provider === undefined ? {} : { provider: probe.provider },
     ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
     ...probe.api === undefined ? {} : { api: probe.api },
@@ -284,12 +284,12 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     setFailure(undefined)
     setFetchStatus(undefined)
     try {
-      const response = await api.llm.discoverModels(probeRequest)
-      if (!response.result.ok) {
-        setFailure(response.result.error.message)
+      const answer = await operations.discoverModels(probe.settingsNs, discoverRequest)
+      if (answer.kind === 'refused') {
+        setFailure(answer.message)
         return
       }
-      const found = response.result.value.models
+      const found = answer.models
       if (found.length === 0) {
         setFailure(t('fetchEmpty'))
         return
@@ -379,18 +379,17 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }
   }
 
-  const testModel = async (candidate: DiscoveredModelView): Promise<void> => {
+  const testModel = async (candidate: LlmDiscoveredModel): Promise<void> => {
     const id = candidate.id
     if (testStates[id]?.status === 'testing') return
     setTestStates(prev => ({ ...prev, [id]: { status: 'testing' } }))
     try {
-      const response = await api.llm.testModel({ ...probeRequest, model: id })
-      const result = response.result
-      if (!result.ok) {
-        setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: result.error.message } }))
+      const answer = await operations.testModel(probe.settingsNs, { ...discoverRequest, model: id })
+      if (answer.kind === 'refused') {
+        setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: answer.message } }))
         return
       }
-      const v = result.value
+      const v = answer.result
       if (v.ok) setTestStates(prev => ({ ...prev, [id]: { status: 'ok', latencyMs: v.latencyMs } }))
       else setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: v.latencyMs, error: v.error ?? 'failed' } }))
     } catch (error) {
@@ -401,7 +400,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const knownModelIds = new Set(models.map(model => textOf(model, 'id')))
   const newCandidatesCount = activeCandidates.filter(c => !knownModelIds.has(c.id)).length
 
-  const renderCandidate = (candidate: DiscoveredModelView): ReactNode => {
+  const renderCandidate = (candidate: LlmDiscoveredModel): ReactNode => {
     const state = testStates[candidate.id] ?? { status: 'idle' as const }
     const isFree = isFreeModel(candidate)
     const isNew = !knownModelIds.has(candidate.id)

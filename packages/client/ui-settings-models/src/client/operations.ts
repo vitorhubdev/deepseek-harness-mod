@@ -10,6 +10,7 @@ import type {
   CredentialInfo, LlmDiscoveredModel, LlmModelDiscoveryRequest,
   SettingsNamespaceView, SettingsPathOpView,
 } from '@deepseek-ai/dsh-api-remotes/client'
+import type { LlmModelTestRequest, LlmModelTestResult } from '@deepseek-ai/dsh-llm'
 
 /** What one namespace write answered. */
 export type SettingsWriteOutcome =
@@ -28,6 +29,11 @@ export type ModelDiscoveryOutcome =
   /** The candidates the provider disclosed, in its own order. */
   | { readonly kind: 'found'; readonly models: readonly LlmDiscoveredModel[] }
   /** The interrogation was refused, with the Host's own diagnostic. */
+  | { readonly kind: 'refused'; readonly message: string }
+
+/** What one model probe answered. */
+export type ModelTestOutcome =
+  | { readonly kind: 'ok'; readonly result: LlmModelTestResult }
   | { readonly kind: 'refused'; readonly message: string }
 
 /** The Host operations the Models page and its cards invoke. */
@@ -71,6 +77,13 @@ export interface ModelsOperations {
    * @returns the candidates, or the refusal.
    */
   discoverModels(settingsNs: string, request: LlmModelDiscoveryRequest): Promise<ModelDiscoveryOutcome>
+  /**
+   * Probe one model on a provider endpoint.
+   * @param settingsNs - namespace whose adapter family answers.
+   * @param request - endpoint, protocol, key and model to test.
+   * @returns the latency/error outcome, or the refusal.
+   */
+  testModel(settingsNs: string, request: LlmModelTestRequest): Promise<ModelTestOutcome>
 }
 
 /**
@@ -104,6 +117,11 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
       return response.ok
         ? { kind: 'found', models: response.value }
         : { kind: 'refused', message: response.error.message }
+    },
+    testModel: async (settingsNs, request) => {
+      const response = await ctx.remote.llm.testModel(settingsNs, request)
+      if (response.ok) return { kind: 'ok', result: response.value }
+      return { kind: 'refused', message: response.error.message }
     },
   }
 }
