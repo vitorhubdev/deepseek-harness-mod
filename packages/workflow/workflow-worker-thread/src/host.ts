@@ -115,6 +115,7 @@ export class WorkerRun implements WorkflowRun {
   private workerGone = false
   /** Accepted `child-start` messages — the terminate-path `agentsStarted` (see module doc). */
   private hostStarted = 0
+  private agentStarts = 0
   /** Published children by callId; an entry leaves only after disposal settles. */
   private readonly children = new Map<number, ChildRecord>()
   /** Provider starts that have not yet fulfilled or rejected. */
@@ -196,7 +197,7 @@ export class WorkerRun implements WorkflowRun {
       // every stranded start before the run settles, so ends precede
       // workflow/end.
       this.endStrandedAgents()
-      this.settleResult(this.cancelledResult(this.hostStarted))
+      this.settleResult(this.cancelledResult(this.agentStarts))
       void this.worker.terminate()
     }, this.disposeGraceMs)
     // unref'd: an armed grace timer must never hold the process open.
@@ -287,6 +288,7 @@ export class WorkerRun implements WorkflowRun {
         if (this.cancelReason === undefined) this.observer.log(message.message)
         break
       case WorkerToHostType.AgentStart:
+        this.agentStarts += 1
         this.liveAgents.set(message.info.seq, message.info)
         this.observer.agentStart(message.info)
         break
@@ -535,9 +537,9 @@ export class WorkerRun implements WorkflowRun {
       this.endStrandedAgents()
       if (!outcomeWasClaimed) {
         if (cancellationWasRequested) {
-          this.settleResult(this.cancelledResult(this.hostStarted))
+          this.settleResult(this.cancelledResult(this.agentStarts))
         } else {
-          this.settleResult({ value: null, stopReason: 'error', error: message, agentsStarted: this.hostStarted })
+          this.settleResult({ value: null, stopReason: 'error', error: message, agentsStarted: this.agentStarts })
         }
       }
     }

@@ -135,7 +135,8 @@ export class TerminalSanitizer {
 
   private enforcePendingBound(): void {
     if (Buffer.byteLength(this.pending) <= this.maxPendingBytes) return
-    this.discardMode = this.pending[1] === ']' ? 'osc' : 'csi'
+    this.discardMode = undefined
+    this.discardOscEscape = false
     this.pending = ''
   }
 

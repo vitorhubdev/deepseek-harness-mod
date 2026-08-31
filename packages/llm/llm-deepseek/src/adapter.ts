@@ -477,6 +477,8 @@ export class DeepSeekAdapter extends LlmAdapter {
     try {
       while (true) {
         const result = await watchdog.next(iterator)
+        const timeout = timeoutOf(watchdog.signal, STREAM_IDLE_TIMEOUT_CODE)
+        if (timeout !== undefined) throw timeout
         if (result.done) {
           exhausted = true
           return

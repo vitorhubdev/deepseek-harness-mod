@@ -330,11 +330,12 @@ export class LocalPtySession implements TerminalBackendSession {
     const requested = lines.slice(start, end).join('\n')
     const bounded = utf8Tail(requested, this.config.maxReadBytes)
     const returnedLines = bounded.text.length === 0 ? 0 : bounded.text.split('\n').length
+    const actualStart = end - returnedLines
     return {
       text: bounded.text,
       totalLines,
-      lineBegin: offset,
-      lineEnd: offset + returnedLines,
+      lineBegin: actualStart,
+      lineEnd: end,
       truncated: snapshot.truncated || bounded.truncated,
     }
   }

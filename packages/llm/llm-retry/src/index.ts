@@ -120,7 +120,7 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     retryId: RetryId,
     delayMs: number,
     signal: AbortSignal,
-  ): Promise<RequestErrorAction> {
+  ): Promise<RequestErrorAction | undefined> {
     const fusedSignal = AbortSignal.any([signal, lifetime.signal])
     if (fusedSignal.aborted) return
     const eventData: LlmRetryEventData = policy.mode === 'normal'
@@ -158,13 +158,22 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
     next: () => Promise<RequestErrorAction>,
   ): Promise<RequestErrorAction> {
     if (policy === undefined) return next()
+    const policyKey = retryPolicyKey(policy)
+    const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
+      event.type === 'llm/retry'
+      && event.data.turn === turn
+      && event.data.step === step
+      && event.data.provider === provider
+      && event.data.policyKey === policyKey,
+    )
+    const previousRetry = priorPolicyRetry?.data.retry ?? 0
     if (policy.mode === 'always') {
-      if (signal.aborted || lifetime.signal.aborted) return
+      if (signal.aborted || lifetime.signal.aborted) return next()
       const fusedSignal = AbortSignal.any([signal, lifetime.signal])
       // The loop and plugin lifetime stay open until delegated recovery settles.
       // An abort then wins before the decision or fallback can mutate later state.
       const downstream = await settleDownstream(next)
-      if (fusedSignal.aborted) return
+      if (fusedSignal.aborted) return next()
       if (downstream.type === 'error') {
         ctx.logger.warn(
           `llm-retry: provider "${provider}" always policy ignored a downstream recovery failure: %o`,
@@ -178,15 +187,6 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       return next()
     }
 
-    const policyKey = retryPolicyKey(policy)
-    const priorPolicyRetry = agent.session.events.findLast((event): event is SessionEvent<'llm/retry'> =>
-      event.type === 'llm/retry'
-      && event.data.turn === turn
-      && event.data.step === step
-      && event.data.provider === provider
-      && event.data.policyKey === policyKey,
-    )
-    const previousRetry = priorPolicyRetry?.data.retry ?? 0
     if (policy.mode === 'normal' && previousRetry >= policy.maxRetries) return next()
     const retry = previousRetry + 1
     const retryId = priorPolicyRetry?.data.retryId ?? RetryId(randomUUID())
@@ -204,7 +204,8 @@ export function apply(ctx: Context, config: Config = {}, internals: RetryInterna
       delayMs = localDelay(policy, retry, random)
     }
 
-    return backoff(agent, turn, step, failure, provider, policy, policyKey, retry, retryId, delayMs, signal)
+    const decision = await backoff(agent, turn, step, failure, provider, policy, policyKey, retry, retryId, delayMs, signal)
+    return decision ?? next()
   }
 
   const disposeListener = ctx.on('agent/request-error', (

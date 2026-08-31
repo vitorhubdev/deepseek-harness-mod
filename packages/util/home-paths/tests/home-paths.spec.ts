@@ -43,6 +43,9 @@ describe('dsh path helpers', () => {
   it('treats an empty or whitespace-only DSH_HOME as unset', () => {
     expect(resolveDshHome(undefined, { DSH_HOME: '' })).toBe(defaultDshHome())
     expect(resolveDshHome(undefined, { DSH_HOME: '   ' })).toBe(defaultDshHome())
+    expect(resolveDshHome('', { DSH_HOME: '' })).toBe(defaultDshHome())
+    expect(resolveDshHome('   ', { DSH_HOME: '' })).toBe(defaultDshHome())
+    expect(resolveDshHome('', { DSH_HOME: '~/env-dsh' })).toBe(join(homedir(), 'env-dsh'))
   })
 
   it('joins child segments onto the resolved DSH_HOME', () => {

@@ -86,7 +86,9 @@ export function expandHomePath(path: string): string {
  */
 export function resolveDshHome(configured?: string, env: Record<string, string | undefined> = process.env): string {
   const fromEnv = env[DSH_HOME_ENV]
-  const selected = configured ?? (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : defaultDshHome())
+  const selected = configured !== undefined && configured.trim().length > 0
+    ? configured
+    : (fromEnv !== undefined && fromEnv.trim().length > 0 ? fromEnv : defaultDshHome())
   return resolve(expandHomePath(selected))
 }
 

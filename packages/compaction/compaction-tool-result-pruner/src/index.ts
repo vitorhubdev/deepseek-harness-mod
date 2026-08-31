@@ -145,18 +145,25 @@ export class ToolResultPruner extends Service {
     const pruned: PrunedEntry[] = []
     let charsRemoved = 0
     for (const { seq, event } of candidates) {
-      const result = event.data.message.content[0]
-      if (result === undefined) continue
-      const content = this.pruneContent(result.content)
-      if (content === null) continue
-      const charsBefore = this.measureContent(result.content)
-      const charsAfter = this.measureContent(content)
+      let modified = false
+      let charsBefore = 0
+      let charsAfter = 0
+      const prunedBlocks = event.data.message.content.map((result) => {
+        const content = this.pruneContent(result.content)
+        if (content !== null) {
+          modified = true
+          charsBefore += this.measureContent(result.content)
+          charsAfter += this.measureContent(content)
+          return { ...result, content }
+        }
+        charsBefore += this.measureContent(result.content)
+        charsAfter += this.measureContent(result.content)
+        return result
+      })
+      if (!modified) continue
       const message = freezeMessage<ToolResultMessage>({
         ...event.data.message,
-        content: [{
-          ...result,
-          content,
-        }] as [typeof result],
+        content: prunedBlocks as typeof event.data.message.content,
       })
       // Shadow-price protocol: the metering event and its replacement are
       // appended synchronously adjacent, so pure consumers subtract the
