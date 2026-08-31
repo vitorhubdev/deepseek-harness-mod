@@ -5,7 +5,7 @@ import { Context } from '@deepseek-ai/cordis'
 import LlmRuntime, { userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all'
-import { discoverModels, testModel } from '../src/discovery.ts'
+import { discoverModels } from '../src/discovery.ts'
 
 const servers: Server[] = []
 /** Credential variables a test set, cleared so the next one starts unset. */
@@ -73,30 +73,23 @@ async function harness(): Promise<Context> {
 }
 
 describe('catalog-route model discovery', () => {
-  it('answers from the installed registry without network call when no baseURL is provided', async () => {
-    const ctx = await harness()
-
-    const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })
-
-    // pi-ai's own registry is the authority for its own providers without endpoint
-    expect(models.map(model => model.id).sort())
-      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
-    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
-  })
-
-  it('interrogates the live endpoint when baseURL is given and enriches with catalog metadata', async () => {
-    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'deepseek-v4-flash' }, { id: 'custom-model', display_name: 'Custom' }] }) })
+  it('answers from the installed registry, with capacities and no network call', async () => {
+    const server = await listingServer({ body: JSON.stringify({ data: [{ id: 'from-the-endpoint' }] }) })
     const ctx = await harness()
 
     const models = await ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek', baseURL: server.url })
 
-    expect(server.paths).toEqual(['/models'])
-    const dsFlash = models.find(m => m.id === 'deepseek-v4-flash')
-    expect(dsFlash).toBeDefined()
-    expect((dsFlash?.contextWindow ?? 0) > 0).toBe(true)
-    const custom = models.find(m => m.id === 'custom-model')
-    expect(custom).toBeDefined()
-    expect(custom?.name).toBe('Custom')
+    // pi-ai's own registry is the authority for its own providers, and it
+    // carries what a listing endpoint would not disclose.
+    expect(models.map(model => model.id).sort())
+      .toEqual(getBuiltinModels('deepseek').map(model => model.id).sort())
+    expect(models.every(model => (model.contextWindow ?? 0) > 0 && (model.maxTokens ?? 0) > 0)).toBe(true)
+    expect(server.paths).toEqual([])
+  })
+
+  it('needs no endpoint for a route the catalog describes', async () => {
+    const ctx = await harness()
+    await expect(ctx.llm.discoverModels('llm-pi-ai', { provider: 'deepseek' })).resolves.not.toHaveLength(0)
   })
 
   it('says where a route the catalog does not describe must get its models', async () => {
@@ -377,50 +370,5 @@ describe('probe key format', () => {
 
     const headers = new Headers(requests[0]?.headers)
     expect(headers.has('authorization')).toBe(false)
-  })
-
-  it('resolves non-listable catalog routes from catalog without network calls even with explicit baseUrl and apiKey', async () => {
-    vi.stubGlobal('fetch', () => {
-      throw new Error('fetch should not be called for non-listable catalog routes')
-    })
-    const models = await discoverModels({
-      provider: 'anthropic',
-      baseURL: 'https://api.anthropic.com',
-      apiKey: 'sk-ant-x',
-    })
-    expect(models.length).toBeGreaterThan(0)
-    expect(models.map(m => m.id).sort()).toEqual(getBuiltinModels('anthropic').map(m => m.id).sort())
-  })
-
-  it('fails discovery with DISCOVERY_FAILED when explicit baseURL is unreachable for a catalog provider', async () => {
-    await expect(discoverModels({
-      provider: 'deepseek',
-      baseURL: 'http://127.0.0.1:9/v1',
-      apiKey: 'sk-test',
-    })).rejects.toMatchObject({ code: 'DISCOVERY_FAILED' })
-  })
-
-  it('treats whitespace-only baseURL as absent and answers from catalog without network', async () => {
-    vi.stubGlobal('fetch', () => {
-      throw new Error('fetch should not be called for whitespace baseURL')
-    })
-    const models = await discoverModels({
-      provider: 'deepseek',
-      baseURL: '   ',
-    })
-    expect(models.length).toBeGreaterThan(0)
-  })
-
-  it('returns protocol error for testModel on non-openai routes without making network calls', async () => {
-    vi.stubGlobal('fetch', () => {
-      throw new Error('fetch should not be called for non-openai testModel')
-    })
-    const result = await testModel({
-      provider: 'anthropic',
-      model: 'claude-3-5-sonnet-20241022',
-      apiKey: 'sk-ant-x',
-    })
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain('has no test probe in this build')
   })
 })

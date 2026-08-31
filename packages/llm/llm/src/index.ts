@@ -18,6 +18,8 @@ import type {
   LlmModelContext,
   LlmModelDiscoveryRequest,
   LlmModelInfo,
+  LlmModelTestRequest,
+  LlmModelTestResult,
   LlmResolvedModelInfo,
   LlmProviderInfo,
   ModelModality,
@@ -330,6 +332,10 @@ export class LlmRuntime extends TypertRemoteService {
     string,
     (request: LlmModelDiscoveryRequest, signal?: AbortSignal) => Promise<readonly LlmDiscoveredModel[]>
   >()
+  private testers = new Map<
+    string,
+    (request: LlmModelTestRequest, signal?: AbortSignal) => Promise<LlmModelTestResult>
+  >()
 
   constructor(ctx: Context) {
     super(ctx, 'llm')
@@ -628,6 +634,85 @@ export class LlmRuntime extends TypertRemoteService {
     } catch (error: unknown) {
       throw new RemoteError(
         'llm/model-discovery-rejected',
+        error instanceof Error ? error.message : String(error),
+        {
+          settingsNs,
+          ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
+        },
+        { cause: error },
+      )
+    }
+  }
+
+  /**
+   * Offer to test provider endpoints on behalf of the settings namespace this plugin owns. Disposed with the fiber.
+   * @param settingsNs - the namespace whose profiles this tester serves.
+   * @param test - tests one model endpoint and must honor the supplied signal.
+   * @returns the disposer that withdraws the offer.
+   */
+  registerModelTest(
+    settingsNs: string,
+    test: (
+      request: LlmModelTestRequest,
+      signal?: AbortSignal,
+    ) => Promise<LlmModelTestResult>,
+  ): () => void {
+    const dispose = this.ctx.effect(function* (this: LlmRuntime) {
+      if (settingsNs.length === 0) {
+        throw new LlmError('model test needs a non-empty settings namespace', 'INVALID_DISCOVERY')
+      }
+      if (this.testers.has(settingsNs)) {
+        throw new LlmError(`model test for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      this.testers.set(settingsNs, test)
+      yield () => {
+        this.testers.delete(settingsNs)
+      }
+    }.bind(this), 'llm.registerModelTest()')
+    return () => void dispose()
+  }
+
+  /**
+   * Test one model on a provider endpoint.
+   * @param settingsNs - namespace whose registered tester serves this request.
+   * @param request - the endpoint, protocol, one-shot credential, and model to test.
+   * @param signal - caller cancellation.
+   * @returns the test result indicating success/latency/error.
+   */
+  async testModel(
+    settingsNs: string,
+    request: LlmModelTestRequest,
+    signal?: AbortSignal,
+  ): Promise<LlmModelTestResult> {
+    const test = this.testers.get(settingsNs)
+    if (test === undefined) {
+      throw new LlmError(`no model test is registered for "${settingsNs}"`, 'NO_DISCOVERY')
+    }
+    if ((request.provider ?? '').length === 0 && (request.baseURL ?? '').length === 0) {
+      throw new LlmError('model test needs a provider route or a baseURL', 'INVALID_DISCOVERY')
+    }
+    return signal === undefined ? await test(request) : await test(request, signal)
+  }
+
+  /**
+   * Remote adapter for one model probe.
+   * @param settingsNs - namespace whose registered tester serves this request.
+   * @param request - endpoint, protocol, one-shot credential, and model to test.
+   * @param signal - caller cancellation supplied by the Remote carrier.
+   * @returns the test result.
+   * @throws RemoteError with `llm/model-test-rejected` when the probe refuses or fails.
+   */
+  @Remote('testModel')
+  async remoteTestModel(
+    settingsNs: string,
+    request: LlmModelTestRequest,
+    signal: AbortSignal,
+  ): Promise<LlmModelTestResult> {
+    try {
+      return await this.testModel(settingsNs, request, signal)
+    } catch (error: unknown) {
+      throw new RemoteError(
+        'llm/model-test-rejected',
         error instanceof Error ? error.message : String(error),
         {
           settingsNs,

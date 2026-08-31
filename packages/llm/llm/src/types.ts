@@ -255,16 +255,6 @@ export interface LlmModelDiscoveryOperation extends LlmModelDiscoveryRequest {
   signal?: AbortSignal
 }
 
-declare module '@deepseek-ai/dsh-typert-protocol' {
-  interface RemoteErrorDetailsMap {
-    /** A draft provider interrogation refused or failed. */
-    'llm/model-discovery-rejected': {
-      readonly settingsNs: string
-      readonly baseURL?: string
-    }
-  }
-}
-
 /**
  * One interrogation to test if a model answers on a provider endpoint.
  */
@@ -291,6 +281,21 @@ export interface LlmModelTestResult {
   latencyMs: number
   /** Error message when ok is false. */
   error?: string
+}
+
+declare module '@deepseek-ai/dsh-typert-protocol' {
+  interface RemoteErrorDetailsMap {
+    /** A draft provider interrogation refused or failed. */
+    'llm/model-discovery-rejected': {
+      readonly settingsNs: string
+      readonly baseURL?: string
+    }
+    /** A draft model probe refused or failed. */
+    'llm/model-test-rejected': {
+      readonly settingsNs: string
+      readonly baseURL?: string
+    }
+  }
 }
 
 /**

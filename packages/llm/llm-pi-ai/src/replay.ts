@@ -8,7 +8,7 @@
  * @module dsh-llm-pi-ai/replay
  */
 
-import { assertNever, LlmError } from '@deepseek-ai/dsh-llm'
+import { LlmError } from '@deepseek-ai/dsh-llm'
 import type { Message, ModelMessageSource, ReplayEnvelope } from '@deepseek-ai/dsh-llm'
 import type { Api, AssistantMessage, Usage as PiUsage } from '@earendil-works/pi-ai'
 
@@ -97,8 +97,6 @@ export function toPiReplayState(message: AssistantMessage): ReplayEnvelope {
           type: 'tool-call',
           ...block.thoughtSignature === undefined ? {} : { thoughtSignature: block.thoughtSignature },
         }
-        default:
-          return assertNever(block, 'pi-ai replay block')
       }
     }),
   }
