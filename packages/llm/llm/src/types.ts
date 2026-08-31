@@ -269,8 +269,6 @@ export interface LlmModelTestRequest {
   apiKey?: string
   /** Model id to test. */
   model: string
-  /** Caller cancellation. */
-  signal?: AbortSignal
 }
 
 /** Result of a model test probe. */
@@ -281,6 +279,12 @@ export interface LlmModelTestResult {
   latencyMs: number
   /** Error message when ok is false. */
   error?: string
+}
+
+/** Provider-side test request with operation-local cancellation attached. */
+export interface LlmModelTestOperation extends LlmModelTestRequest {
+  /** Caller cancellation; implementations must settle promptly after it aborts. */
+  signal?: AbortSignal
 }
 
 declare module '@deepseek-ai/dsh-typert-protocol' {

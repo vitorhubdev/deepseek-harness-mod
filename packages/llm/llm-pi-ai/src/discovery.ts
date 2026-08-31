@@ -25,8 +25,8 @@
 import { INVALID_CREDENTIAL_CODE, LlmError, normalizeApiKey } from '@deepseek-ai/dsh-llm'
 import type {
   LlmDiscoveredModel,
-  LlmModelDiscoveryRequest,
-  LlmModelTestRequest,
+  LlmModelDiscoveryOperation,
+  LlmModelTestOperation,
   LlmModelTestResult,
 } from '@deepseek-ai/dsh-llm'
 import type { Api, Model } from '@earendil-works/pi-ai'
@@ -187,15 +187,6 @@ function usableProbeKey(raw: string): string {
 }
 
 /**
- * Interrogate one draft provider endpoint for the models it advertises.
- * @param request - the endpoint, protocol, and one-shot credential to use.
- * @param storedApiKey - the credential the named route already stored, asked
- *   for only when the draft carries none and only on the path that reaches the
- *   network. A configuration surface never holds a stored secret — it edits a
- *   redacted descriptor — so without this an already-configured route would be
- *   interrogated unauthenticated and answer 401.
- * @returns the advertised models in endpoint order.
-/**
  * Derive the default base URL for one provider route from the installed catalog.
  *
  * Prefers the provider's top-level endpoint, then a model matching the route's
@@ -243,7 +234,7 @@ function toDiscoveredList(installed: ReadonlyMap<string, Model<Api>>): readonly 
  *   refuses or fails the request, or the reply is not a model listing.
  */
 export async function discoverModels(
-  request: LlmModelDiscoveryRequest,
+  request: LlmModelDiscoveryOperation,
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<readonly LlmDiscoveredModel[]> {
   const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
@@ -357,7 +348,7 @@ export async function discoverModels(
  * @returns the test result indicating success/latency/error.
  */
 export async function testModel(
-  request: LlmModelTestRequest,
+  request: LlmModelTestOperation,
   storedApiKey?: () => Promise<string | undefined>,
 ): Promise<LlmModelTestResult> {
   const started = Date.now()
