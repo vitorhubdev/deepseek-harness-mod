@@ -565,6 +565,10 @@ export class LlmRuntime extends TypertRemoteService {
       if (this.discoveries.has(settingsNs)) {
         throw new LlmError(`model discovery for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
       }
+      if (this.discoveries.size >= 50) {
+        const oldest = this.discoveries.keys().next().value
+        if (oldest !== undefined) this.discoveries.delete(oldest)
+      }
       this.discoveries.set(settingsNs, discover)
       yield () => {
         this.discoveries.delete(settingsNs)
@@ -632,11 +636,13 @@ export class LlmRuntime extends TypertRemoteService {
     try {
       return await this.discoverModels(settingsNs, request, signal)
     } catch (error: unknown) {
+      const code = (error as { code?: unknown } | null)?.code
       throw new RemoteError(
         'llm/model-discovery-rejected',
         error instanceof Error ? error.message : String(error),
         {
           settingsNs,
+          ...typeof code === 'string' ? { errorCode: code } : {},
           ...request.baseURL === undefined ? {} : { baseURL: request.baseURL },
         },
         { cause: error },
@@ -663,6 +669,10 @@ export class LlmRuntime extends TypertRemoteService {
       }
       if (this.testers.has(settingsNs)) {
         throw new LlmError(`model test for "${settingsNs}" is already registered`, 'DUPLICATE_DISCOVERY')
+      }
+      if (this.testers.size >= 50) {
+        const oldest = this.testers.keys().next().value
+        if (oldest !== undefined) this.testers.delete(oldest)
       }
       this.testers.set(settingsNs, test)
       yield () => {

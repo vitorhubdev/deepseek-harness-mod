@@ -285,8 +285,8 @@ function shutdownRecord(session: Session): SessionTelemetryRecord {
 function severityOf(event: SessionEvent): SessionTelemetrySeverity {
   switch (event.type) {
     case 'tool/result': {
-      const block = event.data.message.content[0]
-      return block !== undefined && block.isError === true ? 'error' : 'info'
+      const block = event.data.message.content[0] as { isError?: boolean } | undefined
+      return block?.isError === true ? 'error' : 'info'
     }
     case 'turn/end':
       return event.data.reason.kind === 'error' ? 'error' : 'info'

@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["node"],
+    "noEmit": false,
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["src/**/*", "../shared/**/*"],
+  "references": [
+    { "path": "../../packages/boot/app-boot" },
+    { "path": "../../packages/util/home-paths" },
+    { "path": "../../packages/util/launch-environment" }
+  ]
+}

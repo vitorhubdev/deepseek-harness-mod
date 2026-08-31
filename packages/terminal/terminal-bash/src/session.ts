@@ -558,6 +558,9 @@ export class LocalPtySession implements TerminalBackendSession {
   private queueEmulatorData(data: string): void {
     if (this.emulatorClosed) return
     this.emulatorBuffer += data
+    if (this.emulatorBuffer.length > 1_000_000) {
+      this.emulatorBuffer = this.emulatorBuffer.slice(-500_000)
+    }
     if (this.emulatorWriteDone === undefined) {
       const idle = Promise.withResolvers<undefined>()
       this.emulatorWrites = idle.promise

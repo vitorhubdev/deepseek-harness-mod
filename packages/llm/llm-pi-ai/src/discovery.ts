@@ -117,7 +117,10 @@ async function readBounded(response: Response, url: string): Promise<string> {
       const { done, value } = await reader.read()
       if (done) break
       total += value.byteLength
-      if (total > MAX_RESPONSE_BYTES) throw oversized()
+      if (total > MAX_RESPONSE_BYTES) {
+        await reader.cancel()
+        throw oversized()
+      }
       chunks.push(value)
     }
   } finally {
@@ -186,6 +189,8 @@ function usableProbeKey(raw: string): string {
   )
 }
 
+const defaultBaseUrlCache = new WeakMap<ReadonlyMap<string, Model<Api>>, Map<string, string | undefined>>()
+
 /**
  * Derive the default base URL for one provider route from the installed catalog.
  *
@@ -205,11 +210,26 @@ export function resolveDefaultBaseURL(
   const catalogBase = catalogProvider(provider)?.baseUrl
   if (catalogBase !== undefined && catalogBase.length > 0) return catalogBase
   if (installed === undefined || installed.size === 0) return undefined
-  const matching = [...installed.values()].find(m => m.api === routeApi)?.baseUrl
-  if (matching !== undefined && matching.length > 0) return matching
-  const listable = [...installed.values()].find(m => LISTABLE_PROTOCOLS.has(m.api))?.baseUrl
-  if (listable !== undefined && listable.length > 0) return listable
-  return [...installed.values()][0]?.baseUrl
+  let providerMap = defaultBaseUrlCache.get(installed)
+  if (providerMap === undefined) {
+    providerMap = new Map()
+    defaultBaseUrlCache.set(installed, providerMap)
+  }
+  if (providerMap.has(routeApi)) return providerMap.get(routeApi)
+  const models = Array.from(installed.values())
+  const matching = models.find(m => m.api === routeApi)?.baseUrl
+  if (matching !== undefined && matching.length > 0) {
+    providerMap.set(routeApi, matching)
+    return matching
+  }
+  const listable = models.find(m => LISTABLE_PROTOCOLS.has(m.api))?.baseUrl
+  if (listable !== undefined && listable.length > 0) {
+    providerMap.set(routeApi, listable)
+    return listable
+  }
+  const fallback = models[0]?.baseUrl
+  providerMap.set(routeApi, fallback)
+  return fallback
 }
 
 function toDiscoveredList(installed: ReadonlyMap<string, Model<Api>>): readonly LlmDiscoveredModel[] {
@@ -392,6 +412,12 @@ export async function testModel(
       ...attributionHeaders(),
     }
     if (apiKey !== undefined && apiKey.length > 0) headers.authorization = `Bearer ${apiKey}`
+    if (request.signal?.aborted) {
+      return { ok: false, latencyMs: 0, error: 'aborted' }
+    }
+    const effectiveSignal = request.signal !== undefined
+      ? AbortSignal.any([request.signal, AbortSignal.timeout(10000)])
+      : AbortSignal.timeout(10000)
     const response = await fetch(url, {
       method: 'POST',
       headers,
@@ -401,7 +427,7 @@ export async function testModel(
         max_tokens: 64,
         stream: false,
       }),
-      ...request.signal === undefined ? {} : { signal: request.signal },
+      signal: effectiveSignal,
     })
     const latencyMs = Date.now() - started
     if (!response.ok) {

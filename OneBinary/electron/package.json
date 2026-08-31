@@ -1,0 +1,27 @@
+{
+  "name": "onebinary-electron",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness OneBinary — Electron single-file distribution (no source fork)",
+  "main": "dist/main.js",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "build": "tsc -b && electron-builder --config electron-builder.yml",
+    "build:win": "tsc -b && electron-builder --win portable --config electron-builder.yml",
+    "build:dir": "tsc -b && electron-builder --dir --config electron-builder.yml",
+    "typecheck": "tsc -b --noEmit"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-app-boot": "workspace:^",
+    "@deepseek-ai/dsh-home-paths": "workspace:^",
+    "@deepseek-ai/dsh-launch-environment": "workspace:^"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "electron": "^44.1.0",
+    "electron-builder": "^26.15.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,59 @@
+appId: ai.deepseek.harness.onebinary
+productName: DeepSeek Harness
+copyright: Copyright © DeepSeek
+
+# Isolated from pnpm workspaces — OneBinary/electron is NOT in pnpm-workspace.yaml
+# so pnpm install at root ignores it. CI installs it separately via `pnpm --filter`.
+directories:
+  buildResources: build
+  output: dist/installer
+
+# Electron 44 + builder 26: asar smartUnpack restores +x on native addons automatically.
+# Cordis Loader + dsh-app-boot are JS and stay inside asar for performance. Only *.node
+# and landlock-run (static musl binary) must be outside asar (spawnSync needs real file + exec bit).
+# Verified against /electron-userland/electron-builder: asar.unpack + files extraResources split.
+asar: true
+asarUnpack:
+  - "**/*.node"
+  - "**/bin/landlock-run"
+  - "**/bin/landlock-run.exe"
+  - "native/landlock-run/packages/**/bin/*"
+
+files:
+  # Electron main/preload (built to dist/)
+  - dist/**/*
+  # Shared helper — already compiled via tsc -b include
+  # Harness closure — JS can stay inside asar; native addons above are unpacked
+  - ../../apps/cli/lib/**/*
+  - ../../apps/web/dist/**/*
+  - ../../packages/*/lib/**/*
+  - ../../packages/boot/app-boot/lib/**/*
+  - ../../vendor/*/lib/**/*
+  - ../../tsdown.config.ts
+  - package.json
+
+extraResources:
+  - from: ../../native/landlock-run/packages/linux-x64/bin
+    to: bin
+    filter: ["**/*"]
+  - from: ../../native/landlock-run/packages/linux-arm64/bin
+    to: bin
+    filter: ["**/*"]
+
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  sign: null
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+
+publish: null

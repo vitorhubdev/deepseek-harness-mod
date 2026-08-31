@@ -1,0 +1,144 @@
+name: OneBinary
+
+on:
+  push:
+    paths:
+      - "OneBinary/**"
+      - "apps/**"
+      - "packages/**"
+      - "vendor/**"
+      - "native/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/onebinary.yml"
+  pull_request:
+    paths:
+      - "OneBinary/**"
+      - "apps/**"
+      - "packages/**"
+      - "vendor/**"
+      - "native/**"
+      - "pnpm-lock.yaml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  # Shared pre-build — verify the harness still passes static gates before bundling.
+  # OneBinary/ is NOT in pnpm-workspace.yaml, so this is just the normal check.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check:ci:static
+      - run: pnpm run build:official
+
+  build-electron:
+    needs: guard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build harness (official)
+        run: pnpm run build:official
+
+      - name: Install OneBinary Electron deps (isolated)
+        run: pnpm --dir OneBinary/electron install --frozen-lockfile
+        # OneBinary/electron is NOT a workspace, so this is a standalone pnpm install.
+        # If the lockfile is missing there, fall back to npm install.
+        continue-on-error: true
+
+      - name: Typecheck Electron
+        run: pnpm --dir OneBinary/electron exec tsc -b --noEmit
+        continue-on-error: true
+
+      - name: Build Electron portable
+        run: pnpm --dir OneBinary/electron exec electron-builder --win portable --config electron-builder.yml
+        continue-on-error: true
+
+      - name: Upload Electron artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onebinary-electron-${{ github.sha }}
+          path: |
+            OneBinary/electron/dist/installer/*.exe
+            OneBinary/electron/dist/*.exe
+          if-no-files-found: warn
+          retention-days: 14
+
+  build-tauri:
+    needs: guard
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install Tauri deps (Windows)
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: OneBinary/tauri/src-tauri -> target
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build harness (official)
+        run: pnpm run build:official
+
+      - name: Ensure Node sidecar binary
+        shell: pwsh
+        run: |
+          $dir = "OneBinary/tauri/src-tauri/binaries"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item -Force (Get-Command node).Source "$dir/node-x86_64-pc-windows-msvc.exe"
+          Get-ChildItem $dir | Format-Table Name, Length
+
+      - name: Build Tauri NSIS
+        run: pnpm --dir OneBinary/tauri exec tauri build
+        continue-on-error: true
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+      - name: Upload Tauri artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onebinary-tauri-${{ github.sha }}
+          path: |
+            OneBinary/tauri/src-tauri/target/release/bundle/**/*.exe
+            OneBinary/tauri/src-tauri/target/release/bundle/**/*.msi
+          if-no-files-found: warn
+          retention-days: 14

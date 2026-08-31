@@ -173,7 +173,7 @@ export async function withFileLock<T>(
     if (remaining <= 0) {
       throw new Error(`atomic-write: timed out waiting for the writer lock at ${lockPath}`)
     }
-    const sleepMs = Math.min(delay, remaining)
+    const sleepMs = Math.max(0, Math.min(delay, remaining))
     await new Promise(resolve => setTimeout(resolve, sleepMs))
     delay = Math.min(delay * 2, LOCK_RETRY_MAX_MS)
   }

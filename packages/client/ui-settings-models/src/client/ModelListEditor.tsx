@@ -242,8 +242,10 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   ): Map<string, string> => {
     const next = new Map<string, string>()
     for (const [key, value] of current) {
-      const at = Number(key.slice(0, key.indexOf(':')))
-      if (at === index) continue
+      const colon = key.indexOf(':')
+      if (colon === -1) continue
+      const at = Number(key.slice(0, colon))
+      if (Number.isNaN(at) || at === index) continue
       // Only the row number moves; the field half of the key is untouched.
       next.set(at > index ? key.replace(/^\d+/, String(at - 1)) : key, value)
     }
@@ -364,9 +366,15 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
 
   const toggleAllCandidates = (): void => {
     setPicked((current) => {
-      return visible.every(candidate => current.has(candidate.id))
-        ? new Set([...current].filter(id => !visible.some(c => c.id === id)))
-        : new Set([...current, ...visible.map(c => c.id)])
+      const visibleIds = new Set(visible.map(c => c.id))
+      const allVisibleInCurrent = visible.length > 0 && visible.every(candidate => current.has(candidate.id))
+      const next = new Set(current)
+      if (allVisibleInCurrent) {
+        for (const id of visibleIds) next.delete(id)
+      } else {
+        for (const id of visibleIds) next.add(id)
+      }
+      return next
     })
   }
 

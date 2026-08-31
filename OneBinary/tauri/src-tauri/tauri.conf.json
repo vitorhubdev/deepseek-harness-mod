@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "DeepSeek Harness",
+  "version": "0.1.0",
+  "identifier": "ai.deepseek.harness.onebinary",
+  "build": {
+    "beforeBuildCommand": "pnpm --filter @deepseek-ai/dsh-web-frontend run build",
+    "beforeDevCommand": "",
+    "devUrl": "http://127.0.0.1:3080",
+    "frontendDist": "../../apps/web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "DeepSeek Harness",
+        "width": 1280,
+        "height": 860,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "category": "DeveloperTool",
+    "targets": ["nsis", "appimage"],
+    "icon": ["icons/icon.png"],
+    "resources": {
+      "../../apps/cli/lib/*": "apps/cli/lib/",
+      "../../apps/web/dist/*": "apps/web/dist/",
+      "../../packages/*/lib/*": "packages/",
+      "../../vendor/*/lib/*": "vendor/"
+    },
+    "externalBin": ["binaries/node"],
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": true,
+      "scope": [
+        {
+          "name": "node-sidecar",
+          "cmd": "node",
+          "args": true
+        }
+      ]
+    }
+  }
+}

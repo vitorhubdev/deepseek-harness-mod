@@ -258,11 +258,11 @@ export class TypeGraphRenderer {
     const visiting = new Set<SymbolId>()
     const visitedNodes = new Set<TypeNodeId>()
     const visitNode = (id: TypeNodeId): void => {
-      if (visitedNodes.has(id)) return
-      visitedNodes.add(id)
       const node = this.node(id)
       if (node.kind === 'reference' && node.target.kind === 'declaration') visitDeclaration(node.target.symbol)
       if (node.kind === 'import-type' && node.target?.kind === 'declaration') visitDeclaration(node.target.symbol)
+      if (visitedNodes.has(id)) return
+      visitedNodes.add(id)
       for (const child of childTypeNodeIds(node)) visitNode(child)
       for (const signature of nodeSignatures(node)) visitSignature(signature)
       if (node.kind === 'object') for (const member of node.members) visitMember(member)

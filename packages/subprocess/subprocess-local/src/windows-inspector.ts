@@ -292,7 +292,7 @@ function snapshotWindowsProcesses(bindings: Win32Bindings): ProcessEntry[] {
       ok = bindings.process32NextW(snapshot, entry)
     }
   } finally {
-    if (entry !== undefined) koffi.free(entry as unknown as Parameters<typeof koffi.free>[0])
+    if (entry !== undefined) koffi.free(entry)
     bindings.closeHandle(snapshot)
   }
   return entries
@@ -326,10 +326,10 @@ function windowsProcessState(bindings: Win32Bindings, pid: number): WindowsProce
       active: wait === WAIT_TIMEOUT,
     }
   } finally {
-    if (creation !== undefined) koffi.free(creation as unknown as Parameters<typeof koffi.free>[0])
-    if (exit !== undefined) koffi.free(exit as unknown as Parameters<typeof koffi.free>[0])
-    if (kernel !== undefined) koffi.free(kernel as unknown as Parameters<typeof koffi.free>[0])
-    if (user !== undefined) koffi.free(user as unknown as Parameters<typeof koffi.free>[0])
+    if (creation !== undefined) koffi.free(creation)
+    if (exit !== undefined) koffi.free(exit)
+    if (kernel !== undefined) koffi.free(kernel)
+    if (user !== undefined) koffi.free(user)
     bindings.closeHandle(handle)
   }
 }

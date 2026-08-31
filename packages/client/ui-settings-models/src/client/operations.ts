@@ -29,7 +29,7 @@ export type ModelDiscoveryOutcome =
   /** The candidates the provider disclosed, in its own order. */
   | { readonly kind: 'found'; readonly models: readonly LlmDiscoveredModel[] }
   /** The interrogation was refused, with the Host's own diagnostic. */
-  | { readonly kind: 'refused'; readonly message: string }
+  | { readonly kind: 'refused'; readonly message: string; readonly code?: string }
 
 /** What one model probe answered. */
 export type ModelTestOutcome =
@@ -114,9 +114,13 @@ export function createModelsOperations(ctx: ClientContext): ModelsOperations {
     },
     discoverModels: async (settingsNs, request) => {
       const response = await ctx.remote.llm.discoverModels(settingsNs, request)
-      return response.ok
-        ? { kind: 'found', models: response.value }
-        : { kind: 'refused', message: response.error.message }
+      if (response.ok) return { kind: 'found', models: response.value }
+      const errorCode = (response.error.details as { errorCode?: string } | undefined)?.errorCode
+      return {
+        kind: 'refused',
+        message: response.error.message,
+        ...errorCode !== undefined ? { code: errorCode } : {},
+      }
     },
     testModel: async (settingsNs, request) => {
       const response = await ctx.remote.llm.testModel(settingsNs, request)

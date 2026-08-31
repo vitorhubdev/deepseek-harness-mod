@@ -80,7 +80,7 @@ export class SessionWriteBehind {
   /** Start the one fixed window for the current pending prefix. */
   private armTimer(): void {
     const timer = setTimeout(() => { this.onDeadline() }, this.options.maxDelayMs)
-    if (typeof timer === 'object' && timer !== null && 'unref' in timer && typeof timer.unref === 'function') {
+    if (typeof timer.unref === 'function') {
       timer.unref()
     }
     this.timer = timer

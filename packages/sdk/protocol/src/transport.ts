@@ -250,7 +250,11 @@ export class JsonRpcLineTransport implements JsonRpcTransportPeer {
           error.data,
         ))
       } else {
-        pending.reject(new JsonRpcResponseError(undefined, String(frame.error), undefined))
+        pending.reject(new JsonRpcResponseError(
+          undefined,
+          typeof frame.error === 'string' ? frame.error : JSON.stringify(frame.error),
+          undefined,
+        ))
       }
       return
     }
