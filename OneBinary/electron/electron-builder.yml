@@ -6,7 +6,7 @@ copyright: Copyright © DeepSeek AI (upstream MIT) — Mod “RASNER” © 2026 
 # `pnpm install` at root installs it together with the 268 other workspaces.
 directories:
   buildResources: build
-  output: C:/Temp/onebinary-electron-out
+  output: out
 
 # Keep asar:false — asar:true breaks ESM bare imports inside app.asar/node_modules
 # (loader's internal.import with app.asar bareModuleBaseUrl cannot resolve nested node_modules like compression/debug).
