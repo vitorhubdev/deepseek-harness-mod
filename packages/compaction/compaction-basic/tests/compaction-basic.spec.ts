@@ -716,11 +716,11 @@ describe('pressure measurement and retention', () => {
         this.callCount += 1
         return {
           compactionId: CompactionId('dummy-compaction'),
-          startSeq: start,
-          endSeq: end,
-          summarySeq: end + 1,
-          shadowedRange: { start, end },
-          shadowedSeqs: [start],
+          startSeq: SessionSeq(start),
+          endSeq: SessionSeq(end),
+          summarySeq: SessionSeq(end + 1),
+          shadowedRange: { start: SessionSeq(start), end: SessionSeq(end) },
+          shadowedSeqs: [SessionSeq(start)],
           shadowedTokenCount: 50,
           summary: [{ type: 'text' as const, text: 'summary' }],
         }
@@ -734,7 +734,7 @@ describe('pressure measurement and retention', () => {
     })
     const session = conversation(4)
     const spy = vi.spyOn(regionModule, 'selectCompactableRange')
-      .mockReturnValueOnce({ start: 1, end: 5 })
+      .mockReturnValueOnce({ start: SessionSeq(1), end: SessionSeq(5) })
       .mockReturnValueOnce(null)
 
     try {

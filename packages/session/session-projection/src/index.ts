@@ -645,7 +645,7 @@ export class SessionProjectionRegistry extends Service {
       try {
         next = def.apply(cell.state, event)
       } catch (e) {
-        cell.observedSeq = seq - 1
+        cell.observedSeq = SessionSeq(seq - 1)
         throw e
       }
       if (!Object.is(next, cell.state)) {
