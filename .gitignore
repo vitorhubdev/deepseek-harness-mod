@@ -134,6 +134,13 @@ oxlint-contract-*.ts
 .storages/
 examples/*/.sessions/
 examples/*/*.jsonl
+.humanize/
+tmp/
+python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-*
+python/**/__pycache__/
+python/**/.pytest_cache/
+packages/**/__pycache__/
+apps/web/dist/
 .worktrees/
 worktrees/
 .agents/worktrees/

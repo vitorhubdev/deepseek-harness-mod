@@ -216,6 +216,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     api?: string
     apiKey?: string
   } | undefined>(undefined)
+  const [candidateQuery, setCandidateQuery] = useState('')
 
   useEffect(() => () => {
     clearTimeout(copyTimer.current)
@@ -314,8 +315,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       // selection never silently rewrites a capacity the user corrected.
       const known = new Set(models.map(model => textOf(model, 'id')).filter(id => id.length > 0))
       const newModels = found.filter(model => !known.has(model.id))
-      setCandidates(found)
-      setPicked(new Set(newModels.map(model => model.id)))
+      setCandidateQuery('')
       setOnlyFree(false)
       setTestStates({})
       setFetchStatus({
@@ -340,6 +340,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     setPicked(new Set())
     setOnlyFree(false)
     setTestStates({})
+    setCandidateQuery('')
   }
 
   const adoptPicked = (): void => {
@@ -375,21 +376,33 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const activeCandidates = candidates ?? []
   const freeCandidates = activeCandidates.filter(isFreeModel)
   const paidCandidates = activeCandidates.filter(c => !isFreeModel(c))
-  const visible = onlyFree ? freeCandidates : activeCandidates
-  const visibleFree = freeCandidates
-  const visiblePaid = onlyFree ? [] : paidCandidates
+  const freeFiltered = onlyFree ? freeCandidates : activeCandidates
+  const normalizedCandidateQuery = candidateQuery.trim().toLowerCase()
+  const visibleCandidates = normalizedCandidateQuery.length === 0
+    ? freeFiltered
+    : freeFiltered.filter(candidate => candidate.id.toLowerCase().includes(normalizedCandidateQuery)
+      || candidate.name?.toLowerCase().includes(normalizedCandidateQuery) === true)
+  // Keep HEAD's names as aliases for its UI (free/paid groups)
+  const visible = visibleCandidates
+  const visibleFree = normalizedCandidateQuery.length === 0
+    ? freeCandidates
+    : freeCandidates.filter(candidate => candidate.id.toLowerCase().includes(normalizedCandidateQuery)
+      || candidate.name?.toLowerCase().includes(normalizedCandidateQuery) === true)
+  const visiblePaid = onlyFree ? [] : (normalizedCandidateQuery.length === 0
+    ? paidCandidates
+    : paidCandidates.filter(candidate => candidate.id.toLowerCase().includes(normalizedCandidateQuery)
+      || candidate.name?.toLowerCase().includes(normalizedCandidateQuery) === true))
   const allCandidatesPicked = visible.length > 0
     && visible.every(candidate => picked.has(candidate.id))
+  const allVisibleCandidatesPicked = allCandidatesPicked
 
-  const toggleAllCandidates = (): void => {
+  const toggleVisibleCandidates = (): void => {
     setPicked((current) => {
-      const visibleIds = new Set(visible.map(c => c.id))
-      const allVisibleInCurrent = visible.length > 0 && visible.every(candidate => current.has(candidate.id))
       const next = new Set(current)
-      if (allVisibleInCurrent) {
-        for (const id of visibleIds) next.delete(id)
+      if (visibleCandidates.every(candidate => current.has(candidate.id))) {
+        for (const candidate of visibleCandidates) next.delete(candidate.id)
       } else {
-        for (const id of visibleIds) next.add(id)
+        for (const candidate of visibleCandidates) next.add(candidate.id)
       }
       return next
     })
@@ -662,7 +675,15 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             </div>
           )
           : null}
-        <div className={styles['candidateActions']}>
+        <div className={styles['candidateToolbar']}>
+          <input
+            className={`${styles['input']} ${styles['candidateSearch']}`}
+            type="search"
+            value={candidateQuery}
+            placeholder={t('fetchSearch')}
+            aria-label={t('fetchSearch')}
+            onChange={(event) => { setCandidateQuery(event.target.value) }}
+          />
           <button
             type="button"
             className={styles['onlyFreeButton']}
@@ -672,8 +693,8 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
             <span className={styles['onlyFreeCheck']} aria-hidden>{onlyFree ? '☑' : '☐'}</span>
             {t('onlyFree')} {freeCandidates.length > 0 ? `(${freeCandidates.length})` : ''}
           </button>
-          <Button variant="ghost" size="sm" onClick={toggleAllCandidates}>
-            {t(allCandidatesPicked ? 'fetchDeselectAll' : 'fetchSelectAll')}
+          <Button variant="ghost" size="sm" disabled={visibleCandidates.length === 0} onClick={toggleVisibleCandidates}>
+            {t(allVisibleCandidatesPicked ? 'fetchDeselectAll' : 'fetchSelectAll')}
           </Button>
         </div>
         {visibleFree.length > 0
@@ -697,7 +718,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
           )
           : null}
         {visibleFree.length === 0 && visiblePaid.length === 0
-          ? <p className={styles['modelEmpty']}>{onlyFree ? t('noFreeModels') : t('fetchEmpty')}</p>
+          ? <p className={styles['modelEmpty']}>{onlyFree ? t('noFreeModels') : (normalizedCandidateQuery.length > 0 ? t('fetchNoMatches') : t('fetchEmpty'))}</p>
           : null}
       </Modal>
     </section>
