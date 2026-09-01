@@ -1,0 +1,18 @@
+services:
+  harness:
+    build:
+      context: ..
+      dockerfile: AutoDoc_2026-09-01/Dockerfile
+    working_dir: /workspace
+    env_file:
+      - .env.example
+    environment:
+      CI: "true"
+    command: ["pnpm", "run", "typecheck"]
+
+# Uso:
+# docker compose -f AutoDoc_2026-09-01/docker-compose.yml build
+# docker compose -f AutoDoc_2026-09-01/docker-compose.yml run --rm harness pnpm run build
+# docker compose -f AutoDoc_2026-09-01/docker-compose.yml run --rm harness pnpm run test
+#
+# A Web UI não é publicada por este compose: o bundle Web rejeita 0.0.0.0 por design.

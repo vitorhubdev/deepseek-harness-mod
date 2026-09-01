@@ -2,6 +2,8 @@
 
 > **📋 Changelog prioritário:** veja [`CHANGELOG.md`](CHANGELOG.md) — `v1.0.3` traz OneBinary 249 MB, 5 idiomas, auto-update e login livre. **Criado por [VitorHub](https://github.com/VitorHub/deepseek-harness-mod)** — mod `RASNER` © 2026 VitorHub (upstream MIT © DeepSeek AI).
 
+> **📚 Snapshot técnico:** [`AutoDoc_2026-09-01/`](AutoDoc_2026-09-01/) — contexto, arquitetura/ADRs, stack, setup, contribuição, changelog operacional e ambiente reproduzível. `> 00:33 -2026-09-01`
+
 > **⭐ Uma estrela ajudaria no desenvolvimento** — *A star would help development* — *Один лайк поможет развитию* — *Una estrella ayudaría* — *一颗星星有助于发展* — deixe sua ⭐ em [VitorHub/deepseek-harness-mod](https://github.com/VitorHub/deepseek-harness-mod)!
 
 English | [中文](README.zh.md) | [Português](README.pt.md) | [Русский](README.ru.md) | [Español](README.es.md)
@@ -69,6 +71,10 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 Start with the [development guide](docs/development.md) and [architecture documentation](docs/architecture.md).
 
 For agents, follow [AGENTS.md](AGENTS.md).
+
+### AutoDoc 2026-09-01
+
+O snapshot [`AutoDoc_2026-09-01/`](AutoDoc_2026-09-01/) consolida o estado técnico deste fork em `f5b014c`: stack real, arquitetura/ADRs, setup, convenções de contribuição, histórico resumido e arquivos auxiliares de build/test reproduzível. O snapshot não substitui os manifests e documentos canônicos do projeto; em caso de divergência, prevalece o código/configuração atual.
 
 ## Créditos
 
