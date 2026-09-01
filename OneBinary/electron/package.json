@@ -2,9 +2,12 @@
   "name": "onebinary-electron",
   "private": true,
   "type": "module",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "DeepMod OneBinary — Electron single-file distribution (no source fork)",
-  "author": "VitorHub (mod RASNER) — upstream DeepSeek AI (MIT)",
+  "author": {
+    "name": "VitorHub (mod RASNER) — upstream DeepSeek AI (MIT)",
+    "email": "vitorhubdev@users.noreply.github.com"
+  },
   "repository": "https://github.com/VitorHub/deepseek-harness-mod",
   "main": "dist/main.js",
   "scripts": {
@@ -13,7 +16,7 @@
     "build:bundle": "esbuild src/main.ts src/shared-resolve-paths.ts src/shared-onebinary-env.ts --outdir=dist --platform=node --format=esm --bundle --external:electron --external:electron-updater && esbuild src/preload.ts --outfile=dist/preload.js --platform=browser --format=cjs --bundle --external:electron",
     "build:win": "npm run build:bundle && electron-builder --win portable nsis --x64 --config electron-builder.yml --publish never",
     "build:linux": "npm run build:bundle && electron-builder --linux AppImage deb --x64 --arm64 --config electron-builder.yml --publish never",
-    "build:mac": "npm run build:bundle && electron-builder --mac dmg zip --x64 --arm64 --universal --config electron-builder.yml --publish never",
+    "build:mac": "npm run build:bundle && electron-builder --mac dmg zip --x64 --arm64 --config electron-builder.yml --publish never",
     "build:all": "npm run build:bundle && electron-builder --win portable nsis --x64 --linux AppImage deb --x64 --arm64 --mac dmg zip --x64 --arm64 --universal --config electron-builder.yml --publish never",
     "build:dir": "npm run build:bundle && electron-builder --dir --config electron-builder.yml --publish never",
     "typecheck": "tsc -p tsconfig.json --noEmit"
