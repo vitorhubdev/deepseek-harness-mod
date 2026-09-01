@@ -88,6 +88,8 @@ If a required `gh`, `pnpm`, build, test, or generator command fails because the 
 
 ### Run relevant checks locally
 
+Versionamento DeepMod: ver [dsh-version-management](.agents/skills/dsh-version-management/SKILL.md) — a cada commit LLMs devem `pnpm exec tsx scripts/version-auto-bump.ts` (+0.0.1 patch) e incluir `package.json`/`OneBinary/electron/package.json`/`pnpm-lock.yaml` no commit; Release só com autorização via `question` tool.
+
 Run checks before pushes via [dsh-pre-push-checks](.agents/skills/dsh-pre-push-checks/SKILL.md); report only commands run. After `gh stack sync`, validate immediately; do not merge before checks pass.
 
 - Match evidence to the surface: focused behavior tests, model/user-output snapshots, `doc-sync` for docs, built smokes for published paths, and real-API e2e for providers.

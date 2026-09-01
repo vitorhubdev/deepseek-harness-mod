@@ -2,7 +2,7 @@
   "name": "onebinary-electron",
   "private": true,
   "type": "module",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "DeepMod OneBinary — Electron single-file distribution (no source fork)",
   "author": "VitorHub (mod RASNER) — upstream DeepSeek AI (MIT)",
   "repository": "https://github.com/VitorHub/deepseek-harness-mod",
