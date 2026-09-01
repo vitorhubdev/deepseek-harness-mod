@@ -17,14 +17,12 @@ compression: maximum
 npmRebuild: false
 removePackageScripts: true
 
-# Auto-update via GitHub Releases — electron-updater lê `latest.yml` do mesmo repo
-# O matrix em .github/workflows/onebinary.yml chama --win/--linux/--mac com arch correto.
-publish:
-  provider: github
-  owner: VitorHub
-  repo: deepseek-harness-mod
-  private: false
-  releaseType: release
+# Auto-update via GitHub Releases — electron-updater lê `latest.yml` do release.
+# O upload dos artefatos é exclusivo do job release-attach (.github/workflows/onebinary.yml),
+# que anexa os binários + latest.yml + blockmap ao Release publicado. O bloco
+# publish: foi removido — o owner configurado (VitorHub) não é o dono real do
+# repo (vitorhubdev) e o publish do electron-builder no evento release duplicaria
+# uploads do release-attach.
 
 files:
   - from: dist

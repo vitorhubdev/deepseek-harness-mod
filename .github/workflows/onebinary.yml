@@ -35,6 +35,9 @@ env:
   PRIMARY_NODE_VERSION: '24'
 
 jobs:
+  # Fail-fast do build oficial apenas. Os gates estáticos de docs do upstream
+  # (check:ci:static) pertencem ao workflow CI master — exigir aqui bloqueava a
+  # produção de artefatos do fork sem relação com o build Electron.
   guard:
     runs-on: ubuntu-latest
     steps:
@@ -45,7 +48,6 @@ jobs:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm run check:ci:static
       - run: pnpm run build:official
 
   # ── Mine Electron matrix — cada OS compila nativo (portable/AppImage/deb/dmg/zip) ──
@@ -60,32 +62,28 @@ jobs:
             build: pnpm --filter onebinary-electron run build:win
             artifact: DeepMod-win
             path: |
-              C:/Temp/onebinary-electron-out/DeepMod *.exe
-              C:/Temp/onebinary-electron-out/*.exe
-              C:/Temp/onebinary-electron-out/*.nsis.7z
-              OneBinary/electron/out/DeepMod *.exe
+              OneBinary/electron/out/DeepMod*.exe
+              OneBinary/electron/out/*.exe
+              OneBinary/electron/out/*.blockmap
+              OneBinary/electron/out/*.yml
           - os: ubuntu-24.04
             label: linux
             build: pnpm --filter onebinary-electron run build:linux
             artifact: DeepMod-linux
             path: |
-              C:/Temp/onebinary-electron-out/*.AppImage
-              C:/Temp/onebinary-electron-out/*.deb
               OneBinary/electron/out/*.AppImage
               OneBinary/electron/out/*.deb
-              dist/*.AppImage
-              dist/*.deb
+              OneBinary/electron/out/*.blockmap
+              OneBinary/electron/out/*.yml
           - os: macos-14
             label: mac
             build: pnpm --filter onebinary-electron run build:mac
             artifact: DeepMod-mac
             path: |
-              C:/Temp/onebinary-electron-out/*.dmg
-              C:/Temp/onebinary-electron-out/*.zip
               OneBinary/electron/out/*.dmg
               OneBinary/electron/out/*.zip
-              dist/*.dmg
-              dist/*.zip
+              OneBinary/electron/out/*.blockmap
+              OneBinary/electron/out/*.yml
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
@@ -109,7 +107,7 @@ jobs:
         with:
           name: ${{ matrix.artifact }}-${{ github.sha }}
           path: ${{ matrix.path }}
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 14
 
   release-attach:
