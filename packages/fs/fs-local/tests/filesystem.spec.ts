@@ -293,6 +293,24 @@ describe('readBytes', () => {
     await expect(fs.readBytes(target, undefined, 4)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
   })
 
+  it('rejects with FS_TOO_LARGE when a file grows by even 1 byte beyond maxBytes after stat preflight', async () => {
+    await writeFile(join(dir, 'grow.bin'), Buffer.alloc(4, 1))
+    const target = await fs.resolve('grow.bin')
+    fs.internals.inspectReadBytesAfterStat = () => writeFile(join(dir, 'grow.bin'), Buffer.alloc(5, 2))
+
+    await expect(fs.readBytes(target, undefined, 4)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+  })
+
+  it('handles maxBytes === 0 on empty and non-empty files', async () => {
+    await writeFile(join(dir, 'empty.bin'), Buffer.alloc(0))
+    const emptyTarget = await fs.resolve('empty.bin')
+    expect((await fs.readBytes(emptyTarget, undefined, 0)).length).toBe(0)
+
+    await writeFile(join(dir, 'nonempty.bin'), Buffer.alloc(1, 1))
+    const nonEmptyTarget = await fs.resolve('nonempty.bin')
+    await expect(fs.readBytes(nonEmptyTarget, undefined, 0)).rejects.toMatchObject({ code: 'FS_TOO_LARGE' })
+  })
+
   it('rejects a missing file and a directory', async () => {
     await expect(fs.readBytes(await fs.resolve('nope'), undefined, 1024)).rejects.toMatchObject({ code: 'FS_NOT_FOUND' })
     await expect(fs.readBytes(await fs.resolve('.'), undefined, 1024)).rejects.toMatchObject({ code: 'FS_NOT_REGULAR_FILE' })

@@ -405,7 +405,7 @@ export async function readWholeBytes(
   }
   await internals.inspectReadBytesAfterStat?.(target)
   const stream = createReadStream(target.targetKey, {
-    end: maxBytes > 0 ? maxBytes - 1 : 0,
+    end: maxBytes,
     ...signal ? { signal } : {},
   })
   const chunks: Buffer[] = []

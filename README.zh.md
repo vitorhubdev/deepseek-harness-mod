@@ -1,6 +1,10 @@
-# DeepSeek Harness
+# DeepSeek Harness — DeepMod `v1.0.3` (RASNER)
 
-[English](README.md) | 中文
+> **📋 优先查看更新日志：** 参见 [`CHANGELOG.md`](CHANGELOG.md) — `v1.0.3` 带来 OneBinary 249 MB、5 语言与自动更新。**由 [VitorHub](https://github.com/VitorHub/deepseek-harness-mod) 创建** — 模组 `RASNER` © 2026 VitorHub (上游 MIT © DeepSeek AI)。
+
+> **⭐ 一颗星星有助于发展** — *Uma estrela ajudaria* — *A star would help* — *Один лайк поможет* — *Una estrella ayudaría* — 请在 [VitorHub/deepseek-harness-mod](https://github.com/VitorHub/deepseek-harness-mod) 点个 ⭐！
+
+[English](README.md) | 中文 | [Português](README.pt.md) | [Русский](README.ru.md) | [Español](README.es.md)
 
 DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
 

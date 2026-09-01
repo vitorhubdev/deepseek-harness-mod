@@ -1,37 +1,67 @@
-appId: ai.deepseek.harness.onebinary
-productName: DeepSeek Harness
-copyright: Copyright © DeepSeek
+appId: ai.vitorhub.deepmod
+productName: DeepMod
+copyright: Copyright © DeepSeek AI (upstream MIT) — Mod “RASNER” © 2026 VitorHub — veja LICENSE e THIRD_PARTY_NOTICES.md
 
-# Isolated from pnpm workspaces — OneBinary/electron is NOT in pnpm-workspace.yaml
-# so pnpm install at root ignores it. CI installs it separately via `pnpm --filter`.
+# OneBinary/electron IS a pnpm workspace (pnpm-workspace.yaml:14) so its deps link to the harness closure.
+# `pnpm install` at root installs it together with the 268 other workspaces.
 directories:
   buildResources: build
-  output: dist/installer
+  output: C:/Temp/onebinary-electron-out
 
-# Electron 44 + builder 26: asar smartUnpack restores +x on native addons automatically.
-# Cordis Loader + dsh-app-boot are JS and stay inside asar for performance. Only *.node
-# and landlock-run (static musl binary) must be outside asar (spawnSync needs real file + exec bit).
-# Verified against /electron-userland/electron-builder: asar.unpack + files extraResources split.
-asar: true
-asarUnpack:
-  - "**/*.node"
-  - "**/bin/landlock-run"
-  - "**/bin/landlock-run.exe"
-  - "native/landlock-run/packages/**/bin/*"
+# Keep asar:false — asar:true breaks ESM bare imports inside app.asar/node_modules
+# (loader's internal.import with app.asar bareModuleBaseUrl cannot resolve nested node_modules like compression/debug).
+# Verified: asar:false gives correct resolution for 202 @deepseek-ai/dsh-* packages + vendored cordis.
+asar: false
+
+compression: maximum
+npmRebuild: false
+removePackageScripts: true
+
+# Auto-update via GitHub Releases — electron-updater lê `latest.yml` do mesmo repo
+# O matrix em .github/workflows/onebinary.yml chama --win/--linux/--mac com arch correto.
+publish:
+  provider: github
+  owner: VitorHub
+  repo: deepseek-harness-mod
+  private: false
+  releaseType: release
 
 files:
-  # Electron main/preload (built to dist/)
-  - dist/**/*
-  # Shared helper — already compiled via tsc -b include
-  # Harness closure — JS can stay inside asar; native addons above are unpacked
-  - ../../apps/cli/lib/**/*
-  - ../../apps/web/dist/**/*
-  - ../../packages/*/lib/**/*
-  - ../../packages/boot/app-boot/lib/**/*
-  - ../../vendor/*/lib/**/*
-  - ../../tsdown.config.ts
-  - package.json
+  - from: dist
+    to: dist
+    filter:
+      - "**/*.js"
+  - from: assets
+    to: assets
+    filter:
+      - "**/*"
+  - from: ../../apps/cli
+    to: apps/cli
+    filter:
+      - "lib/**/*"
+      - "package.json"
+  - from: ../../apps/web/dist
+    to: apps/web/dist
+    filter:
+      - "**/*"
+  - from: .
+    to: .
+    filter:
+      - "package.json"
 
+  # Exclude bloat — keep runtime JS even when it lives in a `src` folder (koffi, debug, sdk-logs)
+  - "!**/*.ts"
+  - "!**/*.map"
+  - "!**/*.tsbuildinfo"
+  - "!node_modules/**/*.ts"
+  - "!node_modules/**/*.map"
+  - "!node_modules/**/README.*"
+  - "!node_modules/**/tsconfig.json"
+  - "!node_modules/**/tsdown.config.ts"
+  - "!node_modules/**/__tests__/**/*"
+  - "!node_modules/**/tests/**/*"
+
+# Linux landlock bins are optional on Windows — keep warnings silent by only copying if exists via extraResources with filter
 extraResources:
   - from: ../../native/landlock-run/packages/linux-x64/bin
     to: bin
@@ -39,21 +69,3 @@ extraResources:
   - from: ../../native/landlock-run/packages/linux-arm64/bin
     to: bin
     filter: ["**/*"]
-
-win:
-  target:
-    - target: portable
-      arch: [x64]
-  sign: null
-
-linux:
-  target:
-    - target: AppImage
-      arch: [x64, arm64]
-
-mac:
-  target:
-    - target: dmg
-      arch: [x64, arm64]
-
-publish: null

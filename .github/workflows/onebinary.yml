@@ -2,8 +2,10 @@ name: OneBinary
 
 on:
   push:
+    branches: [master]
+    tags: ['v*']
     paths:
-      - "OneBinary/**"
+      - "OneBinary/electron/**"
       - "apps/**"
       - "packages/**"
       - "vendor/**"
@@ -12,12 +14,14 @@ on:
       - ".github/workflows/onebinary.yml"
   pull_request:
     paths:
-      - "OneBinary/**"
+      - "OneBinary/electron/**"
       - "apps/**"
       - "packages/**"
       - "vendor/**"
       - "native/**"
       - "pnpm-lock.yaml"
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -31,8 +35,6 @@ env:
   PRIMARY_NODE_VERSION: '24'
 
 jobs:
-  # Shared pre-build — verify the harness still passes static gates before bundling.
-  # OneBinary/ is NOT in pnpm-workspace.yaml, so this is just the normal check.
   guard:
     runs-on: ubuntu-latest
     steps:
@@ -46,9 +48,45 @@ jobs:
       - run: pnpm run check:ci:static
       - run: pnpm run build:official
 
+  # ── Mine Electron matrix — cada OS compila nativo (portable/AppImage/deb/dmg/zip) ──
   build-electron:
     needs: guard
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: win
+            build: pnpm --filter onebinary-electron run build:win
+            artifact: DeepMod-win
+            path: |
+              C:/Temp/onebinary-electron-out/DeepMod *.exe
+              C:/Temp/onebinary-electron-out/*.exe
+              C:/Temp/onebinary-electron-out/*.nsis.7z
+              OneBinary/electron/out/DeepMod *.exe
+          - os: ubuntu-24.04
+            label: linux
+            build: pnpm --filter onebinary-electron run build:linux
+            artifact: DeepMod-linux
+            path: |
+              C:/Temp/onebinary-electron-out/*.AppImage
+              C:/Temp/onebinary-electron-out/*.deb
+              OneBinary/electron/out/*.AppImage
+              OneBinary/electron/out/*.deb
+              dist/*.AppImage
+              dist/*.deb
+          - os: macos-14
+            label: mac
+            build: pnpm --filter onebinary-electron run build:mac
+            artifact: DeepMod-mac
+            path: |
+              C:/Temp/onebinary-electron-out/*.dmg
+              C:/Temp/onebinary-electron-out/*.zip
+              OneBinary/electron/out/*.dmg
+              OneBinary/electron/out/*.zip
+              dist/*.dmg
+              dist/*.zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v4
@@ -63,82 +101,40 @@ jobs:
       - name: Build harness (official)
         run: pnpm run build:official
 
-      - name: Install OneBinary Electron deps (isolated)
-        run: pnpm --dir OneBinary/electron install --frozen-lockfile
-        # OneBinary/electron is NOT a workspace, so this is a standalone pnpm install.
-        # If the lockfile is missing there, fall back to npm install.
-        continue-on-error: true
+      - name: Build Electron — ${{ matrix.label }} (x64 + x86/arm64/universal conforme electron-builder.yml)
+        run: ${{ matrix.build }}
 
-      - name: Typecheck Electron
-        run: pnpm --dir OneBinary/electron exec tsc -b --noEmit
-        continue-on-error: true
-
-      - name: Build Electron portable
-        run: pnpm --dir OneBinary/electron exec electron-builder --win portable --config electron-builder.yml
-        continue-on-error: true
-
-      - name: Upload Electron artifact
+      - name: Upload ${{ matrix.label }} artifact
         uses: actions/upload-artifact@v4
         with:
-          name: onebinary-electron-${{ github.sha }}
-          path: |
-            OneBinary/electron/dist/installer/*.exe
-            OneBinary/electron/dist/*.exe
+          name: ${{ matrix.artifact }}-${{ github.sha }}
+          path: ${{ matrix.path }}
           if-no-files-found: warn
           retention-days: 14
 
-  build-tauri:
-    needs: guard
-    runs-on: windows-latest
+  release-attach:
+    if: github.event_name == 'release' && github.event.action == 'published'
+    needs: build-electron
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v6
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v6
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
         with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-          cache: pnpm
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
+          path: ./release-artifacts
+          merge-multiple: true
+      - name: Attach executables to GitHub Release (Win/Linux/macOS, x64/x86/universal)
+        uses: softprops/action-gh-release@v2
         with:
-          toolchain: stable
-
-      - name: Install Tauri deps (Windows)
-        run: |
-          rustup target add x86_64-pc-windows-msvc
-
-      - name: Cache Rust
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: OneBinary/tauri/src-tauri -> target
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Build harness (official)
-        run: pnpm run build:official
-
-      - name: Ensure Node sidecar binary
-        shell: pwsh
-        run: |
-          $dir = "OneBinary/tauri/src-tauri/binaries"
-          New-Item -ItemType Directory -Force -Path $dir | Out-Null
-          Copy-Item -Force (Get-Command node).Source "$dir/node-x86_64-pc-windows-msvc.exe"
-          Get-ChildItem $dir | Format-Table Name, Length
-
-      - name: Build Tauri NSIS
-        run: pnpm --dir OneBinary/tauri exec tauri build
-        continue-on-error: true
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-
-      - name: Upload Tauri artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: onebinary-tauri-${{ github.sha }}
-          path: |
-            OneBinary/tauri/src-tauri/target/release/bundle/**/*.exe
-            OneBinary/tauri/src-tauri/target/release/bundle/**/*.msi
-          if-no-files-found: warn
-          retention-days: 14
+          files: |
+            ./release-artifacts/DeepMod *
+            ./release-artifacts/*.exe
+            ./release-artifacts/*.AppImage
+            ./release-artifacts/*.deb
+            ./release-artifacts/*.dmg
+            ./release-artifacts/*.zip
+            ./release-artifacts/*.yml
+            ./release-artifacts/*.blockmap
+          fail_on_unmatched_files: false
+          generate_release_notes: true

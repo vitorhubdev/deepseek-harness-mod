@@ -1,10 +1,12 @@
 # ── 1. Documentação (.md) ──────────────────────────────────────────────────
-# Ignora arquivos markdown gerais, preservando README e STRUCTURE
+# Ignora arquivos markdown gerais, preservando README, CHANGELOG e STRUCTURE
 *.md
 !README.md
 !**/README.md
 !README.*.md
 !**/README.*.md
+!CHANGELOG.md
+!**/CHANGELOG.md
 !STRUCTURE.md
 !**/STRUCTURE.md
 !AGENTS.md
@@ -35,6 +37,9 @@ lib/
 **/lib/
 dist-exe/
 .dsh-build/
+OneBinary/electron/out/
+OneBinary/electron/dist/
+OneBinary/electron/dist/installer/
 *.tsbuildinfo
 *.exe
 *.out

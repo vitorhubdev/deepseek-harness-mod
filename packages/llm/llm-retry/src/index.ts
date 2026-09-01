@@ -87,9 +87,6 @@ function cancellableDelay(delayMs: number, signal: AbortSignal): Promise<boolean
       signal.removeEventListener('abort', onAbort)
       resolve(true)
     }, delayMs)
-    if (typeof timer.unref === 'function') {
-      timer.unref()
-    }
     function onAbort(): void {
       clearTimeout(timer)
       resolve(false)

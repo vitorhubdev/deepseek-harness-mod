@@ -552,6 +552,29 @@ describe('endpoint interrogation', () => {
     ])
   })
 
+  it('preserves empty draft models when adopting picked candidates without collapsing them', async () => {
+    const discover = vi.fn(() => Promise.resolve(ok([{ id: 'picked-1', contextWindow: 4096 }])))
+    await mountSection({
+      discover,
+      providers: {
+        openai: {
+          models: [
+            { id: '', name: 'Draft 1' },
+            { id: '', name: 'Draft 2' },
+          ],
+        },
+      },
+    })
+    openEditor('openai')
+    fireEvent.click(screen.getByText(en.fetchModels))
+    await screen.findByText('picked-1')
+    fireEvent.click(screen.getByText(en.fetchAdopt))
+
+    expect(screen.getByDisplayValue('Draft 1')).toBeTruthy()
+    expect(screen.getByDisplayValue('Draft 2')).toBeTruthy()
+    expect(screen.getByDisplayValue('picked-1')).toBeTruthy()
+  })
+
   it('keeps the rows editable when the provider cannot be interrogated', async () => {
     const discover = vi.fn(() => Promise.resolve(
       fail('https://proxy.example/v1/models answered 401; check the API key', 'llm/model-discovery-rejected'),

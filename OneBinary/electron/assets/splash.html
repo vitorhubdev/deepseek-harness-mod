@@ -3,20 +3,445 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>DeepSeek Harness — OneBinary</title>
+<title>RASNER — OneBinary</title>
 <style>
-  html,body{height:100%;margin:0;background:#0f0f0f;color:#e6e6e6;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,sans-serif;display:grid;place-items:center}
-  .card{padding:28px 32px;border:1px solid #2a2a2a;border-radius:12px;background:#141414;max-width:520px}
-  h1{margin:0 0 8px;font-size:18px;font-weight:600}
-  p{margin:0;color:#9a9a9a;line-height:1.5;font-size:14px}
-  .mono{font-family:ui-monospace,Consolas,monospace;font-size:12px;color:#7a7a7a;margin-top:10px}
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;background:#0a0a0c;color:#e6e6e6;font-family:ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  body{display:grid;place-items:center;padding:20px}
+  .shell{width:min(760px,96vw);background:#141417;border:1px solid #24242a;border-radius:16px;padding:22px 22px 16px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .top{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}
+  .brand{display:flex;gap:12px;align-items:center}
+  .logo{width:42px;height:42px;border-radius:10px;background:linear-gradient(135deg,#6d28ff,#00d3f3);display:grid;place-items:center;font-weight:800;font-size:16px;color:#fff;letter-spacing:-.04em;flex:0 0 42px}
+  .title h1{margin:0;font-size:18px;font-weight:700;letter-spacing:-.02em;display:flex;gap:6px;align-items:center}
+  .title h1 .q{width:18px;height:18px;border-radius:999px;background:#1e1e24;border:1px solid #2a2a33;color:#9aa0ff;display:grid;place-items:center;font-size:11px;cursor:help;position:relative}
+  .q:hover::after{content:attr(data-tip);position:absolute;left:50%;top:calc(100% + 8px);transform:translateX(-50%);width:320px;background:#1a1a20;border:1px solid #2a2a33;color:#b7b7c2;font-size:12px;line-height:1.45;padding:10px;border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.4);z-index:10;white-space:normal;text-align:left}
+  .title p{margin:2px 0 0;color:#8b8b94;font-size:12.5px}
+  .lang{display:flex;gap:6px;align-items:center}
+  .lang button{all:unset;cursor:pointer;font-size:12px;padding:6px 10px;border-radius:7px;border:1px solid #2a2a33;background:#1a1a20;color:#b7b7c2}
+  .lang button.active{background:#6d28ff;border-color:#6d28ff;color:#fff}
+  .lang button:hover{filter:brightness(1.08)}
+  .bar-wrap{margin:14px 0 8px}
+  .bar-head{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;margin-bottom:6px;gap:10px}
+  .bar-head strong{color:#e6e6e6;font-weight:600}
+  .bar-head span{color:#b7b7c2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar{height:10px;background:#1e1e24;border-radius:999px;overflow:hidden;border:1px solid #2a2a33;position:relative}
+  .fill{height:100%;width:0%;background:linear-gradient(90deg,#6d28ff,#00d3f3);transition:width .35s cubic-bezier(.22,1,.36,1)}
+  .meta{display:flex;justify-content:space-between;gap:10px;margin-top:8px;font-size:11.5px;color:#8b8b94;flex-wrap:wrap}
+  .mono{font-family:ui-monospace,Consolas,SFMono-Regular,monospace}
+  .plugins{color:#9aa0ff}
+  .i18n-row{margin-top:6px;display:flex;gap:8px;flex-wrap:wrap;font-size:11px;color:#6b6b78}
+  .i18n-row span{padding:2px 6px;border-radius:999px;background:#1a1a20;border:1px solid #24242a}
+  .i18n-row span.ok{color:#7dd3a0;border-color:#1e3a2a}
+  .i18n-row span.warn{color:#f0c27a;border-color:#3a2e1a}
+  .logs{margin-top:12px;background:#0f0f12;border:1px solid #24242a;border-radius:10px;overflow:hidden}
+  .logs-head{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:#15151a;border-bottom:1px solid #24242a;gap:8px;flex-wrap:wrap}
+  .logs-head strong{font-size:12px;letter-spacing:.02em}
+  .logs-head .actions{display:flex;gap:6px;flex-wrap:wrap}
+  .logs-head button,.footer button{all:unset;cursor:pointer;font-size:12px;padding:6px 10px;border-radius:7px;border:1px solid #2a2a33;background:#1a1a20;color:#e6e6e6}
+  .logs-head button.primary{all:unset;cursor:pointer;font-size:12px;padding:6px 10px;border-radius:7px;background:#6d28ff;border:1px solid #6d28ff;color:#fff}
+  .logs-head button:hover,.footer button:hover{filter:brightness(1.08)}
+  .logs-head select{font-size:12px;padding:4px 6px;border-radius:6px;background:#1a1a20;color:#b7b7c2;border:1px solid #2a2a33}
+  .log-tail{height:160px;overflow:auto;padding:10px 10px;font-family:ui-monospace,Consolas,monospace;font-size:11px;line-height:1.45;color:#b7b7c2;white-space:pre-wrap;word-break:break-all;background:#0d0d0f}
+  .log-line{padding:1px 0}
+  .log-line.error{color:#ff8da1}
+  .log-line.warn{color:#f0c27a}
+  .log-line.info{color:#b7b7c2}
+  .footer{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .hint{margin-top:8px;color:#6b6b78;font-size:11px;line-height:1.45}
+  .error{margin-top:10px;padding:10px;border-radius:8px;background:#1a0f14;border:1px solid #3a1e26;color:#ff9ab0;font-size:12.5px;display:none;white-space:pre-wrap;word-break:break-all}
+  .error.show{display:block}
+  kbd{background:#1e1e24;border:1px solid #2a2a33;border-bottom-width:2px;padding:1px 5px;border-radius:4px;font-size:11px;color:#b7b7c2}
 </style>
 </head>
 <body>
-  <div class="card">
-    <h1>DeepSeek Harness</h1>
-    <p>Booting Cordis profile <code>web</code>… If this stays visible, check the Electron console for boot errors. The harness will navigate here automatically when `webRuntime` is ready.</p>
-    <div class="mono">OneBinary / Electron · DSH_HOME stays external so sessions survive reboot</div>
+  <div class="shell">
+    <div class="top">
+      <div class="brand">
+        <div class="logo">DM</div>
+        <div class="title">
+          <h1><span id="appName">RASNER</span> <span class="q" id="qmark" data-tip="">?</span></h1>
+          <p id="subtitle">Iniciando o RASNER…</p>
+        </div>
+      </div>
+      <div class="lang" id="langPicker" title="Idioma do sistema — 5 built-in, extensível via language packs">
+        <button data-lang="en">EN</button>
+        <button data-lang="pt">PT</button>
+        <button data-lang="zh">中文</button>
+        <button data-lang="ru">RU</button>
+        <button data-lang="es">ES</button>
+      </div>
+      <label style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:11px;color:#8b8b94;cursor:pointer">
+        <input type="checkbox" id="dontAskLang" style="accent-color:#6d28ff"> <span id="dontAskLabel">Não perguntar novamente</span>
+      </label>
+    </div>
+
+    <div class="bar-wrap">
+      <div class="bar-head">
+        <span id="stage" style="flex:1">Preparando ambiente</span>
+        <strong id="percent">0%</strong>
+      </div>
+      <div class="bar"><div id="fill" class="fill"></div></div>
+      <div id="detail" style="margin-top:6px;color:#8b8b94;font-size:11.5px;min-height:14px">Checando recursos…</div>
+      <div class="meta">
+        <span id="plugins" class="plugins mono">plugins 0 / ?</span>
+        <span id="eta" class="mono"></span>
+        <span id="localeInfo" class="mono" style="margin-left:auto"></span>
+      </div>
+      <div class="i18n-row" id="i18nRow" title="5 built-in + extensível via locale.addLanguage — cada idioma cai para en">
+        <span class="ok" id="i18n-en">en ✓ 100%</span>
+        <span class="ok" id="i18n-pt">pt ✓ 100%</span>
+        <span class="ok" id="i18n-zh">zh ✓ 100%</span>
+        <span class="ok" id="i18n-ru">ru ✓ 100%</span>
+        <span class="ok" id="i18n-es">es ✓ 100%</span>
+      </div>
+    </div>
+
+    <div class="logs">
+      <div class="logs-head">
+        <strong id="liveTitle">Live log — avançado</strong>
+        <div class="actions">
+          <select id="logLevel"><option value="all">all</option><option value="info">info</option><option value="warn">warn</option><option value="error">error</option></select>
+          <button id="btnCopyGH" class="primary" title="Formato para GitHub Issue">Copiar p/ GitHub</button>
+          <button id="btnCopyLLM" title="Prompt pronto para LLM (vibe-coded)">Copiar p/ LLM</button>
+          <button id="btnCopy">Copiar log</button>
+          <button id="btnLogs">Abrir pasta</button>
+          <button id="btnDev">DevTools <kbd>F12</kbd></button>
+        </div>
+      </div>
+      <div id="logTail" class="log-tail">aguardando boot…</div>
+    </div>
+
+    <div id="errorBox" class="error"></div>
+
+    <div class="footer">
+      <button id="btnRetry">↻ Reiniciar</button>
+      <button id="btnQuit">Sair</button>
+      <button id="btnUpdate" style="display:none;background:#0a7d5e;border-color:#0a7d5e;color:#fff">⬇ Atualizar</button>
+      <span id="debug" class="mono" style="margin-left:auto;color:#6b6b78;font-size:11px"></span>
+    </div>
+    <div class="hint" id="hint">
+      Dica: sessões ficam em <span id="dshHome" class="mono"></span>. Se travar, use <b>Copiar p/ GitHub</b> ou <b>Copiar p/ LLM</b>.
+      Atalhos: <kbd>F12</kbd> DevTools · <kbd>Ctrl+R</kbd> recarregar.
+    </div>
+    <div class="hint" style="margin-top:6px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid #24242a;padding-top:8px">
+      <span>Mod <b>RASNER</b> por <a href="#" id="vitorhubLink" style="color:#9aa0ff;text-decoration:none">VitorHub</a> — upstream © DeepSeek AI (MIT). Respeitando a licença original, esta modificação é distribuída sob MIT com créditos.</span>
+      <a href="#" id="starLink" style="margin-left:auto;display:flex;gap:4px;align-items:center;padding:4px 8px;border-radius:999px;background:#1a1a20;border:1px solid #2a2a33;color:#b7b7c2;font-size:11px;text-decoration:none">⭐ Star no GitHub</a>
+      <span id="updateStatus" class="mono" style="font-size:11px;color:#7dd3a0;display:none"></span>
+    </div>
   </div>
+
+<script>
+const I18N = {
+  en: {
+    appName: 'RASNER',
+    subtitle: 'Starting RASNER…',
+    qTip: 'RASNER is the local harness that orchestrates models, plugins and automations in a single .exe — no browser needed. It keeps your sessions on disk so they survive close/reopen. Curated 5 built-ins (en, zh, pt, ru, es) + unlimited via language packs (locale.addLanguage).',
+    stagePreparing: 'Preparing environment…',
+    stageChecking: 'Checking resources…',
+    liveTitle: 'Live log — advanced',
+    hint: 'Sessions live in <span id="dshHome" class="mono"></span>. If it hangs, use <b>Copy for GitHub</b> or <b>Copy for LLM</b>.',
+    localeInfo: 'OS locale',
+    plugins: (a,b)=>`plugins ${a} / ${b}`,
+  },
+  pt: {
+    appName: 'RASNER',
+    subtitle: 'Iniciando o RASNER…',
+    qTip: 'RASNER é o harness local que orquestra modelos, plugins e automações num único .exe — sem navegador. Mantém suas sessões em disco para sobreviver ao fechar/reabrir. 5 idiomas curados (en, zh, pt, ru, es) + ilimitados via language packs.',
+    stagePreparing: 'Preparando ambiente…',
+    stageChecking: 'Checando recursos…',
+    liveTitle: 'Live log — avançado',
+    hint: 'Sessões ficam em <span id="dshHome" class="mono"></span>. Se travar, use <b>Copiar p/ GitHub</b> ou <b>Copiar p/ LLM</b>.',
+    localeInfo: 'Idioma do SO',
+    plugins: (a,b)=>`plugins ${a} / ${b}`,
+  },
+  zh: {
+    appName: 'RASNER',
+    subtitle: '正在启动 RASNER…',
+    qTip: 'RASNER 是将模型、插件和自动化编排在单个 .exe 中的本地 harness——无需浏览器。会话保存在磁盘，关闭重开后保留。5 种精选语言 (en, zh, pt, ru, es) + 通过语言包无限扩展。',
+    stagePreparing: '正在准备环境…',
+    stageChecking: '正在检查资源…',
+    liveTitle: '实时日志 — 高级',
+    hint: '会话位于 <span id="dshHome" class="mono"></span>。卡住时请使用 <b>复制到 GitHub</b> 或 <b>复制到 LLM</b>。',
+    localeInfo: '系统语言',
+    plugins: (a,b)=>`插件 ${a} / ${b}`,
+  },
+  ru: {
+    appName: 'RASNER',
+    subtitle: 'Запуск RASNER…',
+    qTip: 'RASNER — локальный harness, который оркеструет модели, плагины и автоматизацию в одном .exe — без браузера. Сессии хранятся на диске и переживают перезапуск. 5 встроенных языков (en, zh, pt, ru, es) + безлимит через language packs.',
+    stagePreparing: 'Подготовка окружения…',
+    stageChecking: 'Проверка ресурсов…',
+    liveTitle: 'Live log — продвинутый',
+    hint: 'Сессии в <span id="dshHome" class="mono"></span>. При зависании — <b>Копировать для GitHub</b> или <b>Копировать для LLM</b>.',
+    localeInfo: 'Язык ОС',
+    plugins: (a,b)=>`плагины ${a} / ${b}`,
+  },
+  es: {
+    appName: 'RASNER',
+    subtitle: 'Iniciando RASNER…',
+    qTip: 'RASNER es el harness local que orquesta modelos, plugins y automatizaciones en un solo .exe — sin navegador. Guarda tus sesiones en disco para sobrevivir al cerrar/reabrir. 5 idiomas curados (en, zh, pt, ru, es) + ilimitados vía language packs.',
+    stagePreparing: 'Preparando entorno…',
+    stageChecking: 'Verificando recursos…',
+    liveTitle: 'Live log — avanzado',
+    hint: 'Sesiones en <span id="dshHome" class="mono"></span>. Si se cuelga, usa <b>Copiar para GitHub</b> o <b>Copiar para LLM</b>.',
+    localeInfo: 'Idioma del SO',
+    plugins: (a,b)=>`plugins ${a} / ${b}`,
+  }
+};
+
+let currentLang = 'en';
+const els = {
+  appName: document.getElementById('appName'),
+  qmark: document.getElementById('qmark'),
+  subtitle: document.getElementById('subtitle'),
+  stage: document.getElementById('stage'),
+  detail: document.getElementById('detail'),
+  percent: document.getElementById('percent'),
+  fill: document.getElementById('fill'),
+  plugins: document.getElementById('plugins'),
+  liveTitle: document.getElementById('liveTitle'),
+  hint: document.getElementById('hint'),
+  dshHome: document.getElementById('dshHome'),
+  debug: document.getElementById('debug'),
+  localeInfo: document.getElementById('localeInfo'),
+  logTail: document.getElementById('logTail'),
+  errorBox: document.getElementById('errorBox'),
+};
+
+function applyLang(lang, opts={save:false}){
+  currentLang = I18N[lang] ? lang : 'en';
+  const t = I18N[currentLang];
+  els.appName.textContent = t.appName;
+  els.qmark.setAttribute('data-tip', t.qTip);
+  els.subtitle.textContent = t.subtitle;
+  els.liveTitle.textContent = t.liveTitle;
+  // hint contains dshHome span — rebuild with current t.hint but preserve span
+  const dsh = document.getElementById('dshHome')?.textContent || '';
+  els.hint.innerHTML = t.hint;
+  // restore span reference
+  const nh = document.getElementById('dshHome');
+  if(nh) nh.textContent = dsh;
+  document.documentElement.lang = currentLang;
+  document.querySelectorAll('#langPicker button').forEach(b=> b.classList.toggle('active', b.dataset.lang===currentLang));
+  if(opts.save){
+    try{ localStorage.setItem('rasner-lang', currentLang); }catch{}
+    const dontAsk = document.getElementById('dontAskLang')?.checked;
+    if(dontAsk){
+      try{ localStorage.setItem('rasner-lang-dont-ask','1'); localStorage.setItem('rasner-lang-pinned', currentLang); }catch{}
+    }
+  }
+}
+// restore persisted lang if dont-ask was set
+try{
+  const pinned = localStorage.getItem('rasner-lang-pinned');
+  const dontAsk = localStorage.getItem('rasner-lang-dont-ask');
+  if(pinned && dontAsk==='1' && I18N[pinned]){ currentLang=pinned; }
+  else{
+    const saved = localStorage.getItem('rasner-lang');
+    if(saved && I18N[saved]) currentLang=saved;
+  }
+  // apply without save to avoid loop
+  const _t = I18N[currentLang] || I18N.en;
+  document.documentElement.lang = currentLang;
+}catch{}
+
+function detectLang(nativeLangs, osLocale){
+  const cands = [...(nativeLangs||[]), osLocale||''].map(s=> s.slice(0,2).toLowerCase());
+  for(const c of cands){ if(c==='pt') return 'pt'; if(c==='zh') return 'zh'; if(c==='ru') return 'ru'; if(c==='es') return 'es'; }
+  for(const c of cands){ if(c==='en') return 'en'; }
+  return 'en';
+}
+
+const logBuffer = [];
+let logLevelFilter = 'all';
+const logTail = els.logTail;
+
+function appendLog(line, level='info'){
+  const ts = new Date().toISOString().slice(11,19);
+  const entry = { ts, level, line };
+  logBuffer.push(entry);
+  if(logBuffer.length>800) logBuffer.shift();
+  renderLog();
+}
+
+function renderLog(){
+  const frag = document.createDocumentFragment();
+  const lines = logBuffer.filter(e=> logLevelFilter==='all' || e.level===logLevelFilter).slice(-400);
+  logTail.innerHTML = '';
+  for(const e of lines){
+    const div = document.createElement('div');
+    div.className = 'log-line ' + e.level;
+    div.textContent = `[${e.ts}] [${e.level}] ${e.line}`;
+    frag.appendChild(div);
+  }
+  if(lines.length===0) logTail.textContent = currentLang==='zh' ? '等待启动…' : currentLang==='pt' ? 'aguardando boot…' : 'waiting for boot…';
+  else {
+    logTail.appendChild(frag);
+    logTail.scrollTop = logTail.scrollHeight;
+  }
+}
+
+document.getElementById('logLevel').addEventListener('change', e=>{ logLevelFilter=e.target.value; renderLog(); });
+
+// copy helpers — two paths
+async function copyText(t){
+  try{ await navigator.clipboard.writeText(t); return true; }catch{ return false; }
+}
+
+function buildGitHubBody(debug){
+  const tail = logBuffer.slice(-200).map(e=>`[${e.ts}] [${e.level}] ${e.line}`).join('\n');
+  const ws = `OS: ${debug.platform}/${debug.arch} | Electron ${debug.electron} | v${debug.version}\nresourceRoot=${debug.resourceRoot}\ninstallAnchor=${debug.installAnchor}\ndshHome=${debug.dshHome}\nlogFile=${debug.logFile}`;
+  return `# DeepMod / RASNER — boot report (GitHub)\n\n## System\n\`\`\`\n${ws}\n\`\`\`\n\n## Live log (last 200)\n\`\`\`\n${tail}\n\`\`\`\n\n## Error (if any)\n\`\`\`\n${document.getElementById('errorBox').textContent || '(none)'}\n\`\`\`\n\n## Steps to reproduce\n1. Double-click \\`DeepMod 1.0.3.exe\\`\n2. Observe splash at ${document.getElementById('percent').textContent}\n3. Attach this log + screenshot\n`;
+}
+
+function buildLLMPrompt(debug){
+  const tail = logBuffer.slice(-200).map(e=>`[${e.level}] ${e.line}`).join('\n');
+  return `You are the RASNER/DeepMod OneBinary maintainer. The user double-clicked DeepMod 1.0.3.exe (Electron 44, asar:false, 264 @deepseek-ai/dsh-* deps, 121 plugins) and the splash showed:\n- Stage: ${document.getElementById('stage').textContent}\n- Progress: ${document.getElementById('percent').textContent}\n- Plugins: ${document.getElementById('plugins').textContent}\n- Live log tail:\n\`\`\`\n${tail}\n\`\`\`\n- Debug: ${JSON.stringify(debug)}\n- ErrorBox: ${document.getElementById('errorBox').textContent.slice(0,4000)}\n\nGoal: the .exe must open via app tela, not browser, load 121 plugins to 100%, keep sessions in external DSH_HOME, and show detailed logs. This is vibe-coded, so give a minimal, correct patch (file paths, line numbers) plus validation steps (pnpm run build, electron-builder, launch win-unpacked, netstat 3080, loadURL with token). Respond in ${currentLang}.`;
+}
+
+// wiring
+const api = window.onebinary;
+let lastPercent = 0;
+let bridgeOk = false;
+
+if(!api){
+  appendLog('preload bridge ausente — rodando fora do Electron (preview). A barra abaixo é simulação.', 'warn');
+  let p=0;
+  const demo = setInterval(()=>{
+    p=Math.min(88, p+ Math.random()*7|0);
+    document.getElementById('fill').style.width=p+'%';
+    document.getElementById('percent').textContent=p+'%';
+    document.getElementById('plugins').textContent = `plugins ${Math.floor(p/2)} / 121`;
+    if(p>75) clearInterval(demo);
+  }, 500);
+} else {
+  bridgeOk = true;
+  api.onProgress((p)=>{
+    const clamped = Math.max(lastPercent, Math.min(100, p.percent|0));
+    lastPercent = clamped;
+    document.getElementById('fill').style.width = clamped+'%';
+    document.getElementById('percent').textContent = clamped+'%';
+    document.getElementById('stage').textContent = p.stage;
+    document.getElementById('detail').textContent = p.detail || '';
+    if(typeof p.pluginsLoaded==='number'){
+      const tot = p.pluginsTotal ?? '?';
+      const t = I18N[currentLang] || I18N.en;
+      document.getElementById('plugins').textContent = t.plugins(p.pluginsLoaded, tot);
+    }
+    const lvl = clamped>=100 ? 'info' : p.stage.toLowerCase().includes('erro') || p.stage.toLowerCase().includes('error') ? 'error' : 'info';
+    appendLog(`${p.stage}${p.detail ? ' — '+p.detail : ''} (${clamped}%)`, lvl);
+  });
+  api.onError((e)=>{
+    document.getElementById('fill').style.background='#ff3b61';
+    const box = document.getElementById('errorBox');
+    box.textContent = `Falhou em "${e.phase}":\n${e.message}\n\n--- stack ---\n${e.stack.slice(0,4000)}\n\n--- debug ---\n`+Object.entries(e.debugInfo).map(([k,v])=>`${k}=${v}`).join('\n');
+    box.classList.add('show');
+    document.getElementById('stage').textContent = currentLang==='zh' ? '启动失败 — 见下' : currentLang==='en' ? 'Boot failed — see below' : 'Falhou no boot — veja abaixo';
+    appendLog(`ERRO [${e.phase}] ${e.message}`, 'error');
+  });
+  api.onLogLine((line)=>{
+    const lvl = line.toLowerCase().includes('error') ? 'error' : line.toLowerCase().includes('warn') ? 'warn' : 'info';
+    appendLog(line, lvl);
+  });
+  api.getDebugInfo().then(i=>{
+    document.getElementById('debug').textContent = `v${i.version} · Electron ${i.electron} · ${i.platform}/${i.arch}`;
+    const dsh = document.getElementById('dshHome');
+    if(dsh) dsh.textContent = i.dshHome;
+    appendLog(`resourceRoot=${i.resourceRoot}`, 'info');
+    appendLog(`installAnchor=${i.installAnchor}`, 'info');
+    appendLog(`dshHome=${i.dshHome}`, 'info');
+    appendLog(`logFile=${i.logFile}`, 'info');
+    const loc = i.locale || '';
+    document.getElementById('localeInfo').textContent = `${I18N[currentLang].localeInfo}: ${loc} · ${navigator.language}`;
+  });
+  // dont-ask handling for language
+  const dontAskEl = document.getElementById('dontAskLang');
+  const dontAskLabel = document.getElementById('dontAskLabel');
+  const i18nDontAskTexts = { en:"Don't ask again", pt:"Não perguntar novamente", zh:"不再询问", ru:"Больше не спрашивать", es:"No preguntar de nuevo" };
+  function refreshDontAskLabel(){ if(dontAskLabel) dontAskLabel.textContent = i18nDontAskTexts[currentLang] || i18nDontAskTexts.en; }
+  if(dontAskEl){
+    try{ dontAskEl.checked = localStorage.getItem('rasner-lang-dont-ask')==='1'; }catch{}
+    refreshDontAskLabel();
+    dontAskEl.addEventListener('change', ()=>{
+      try{
+        if(dontAskEl.checked){ localStorage.setItem('rasner-lang-dont-ask','1'); localStorage.setItem('rasner-lang-pinned', currentLang); }
+        else { localStorage.removeItem('rasner-lang-dont-ask'); localStorage.removeItem('rasner-lang-pinned'); }
+      }catch{}
+    });
+  }
+  // apply persisted or detected lang, but respect dont-ask
+  let langToApply = null;
+  try{
+    const pinned = localStorage.getItem('rasner-lang-pinned');
+    const dontAsk = localStorage.getItem('rasner-lang-dont-ask');
+    if(pinned && dontAsk==='1' && I18N[pinned]) langToApply = pinned;
+  }catch{}
+  if(!langToApply){
+    // check api first, then navigator
+    api.getLocaleInfo?.().then?.(info=>{
+      if(localStorage.getItem('rasner-lang-dont-ask')==='1') return;
+      const detected = detectLang(navigator.languages, info?.osLocale);
+      applyLang(detected);
+      refreshDontAskLabel();
+      if(info?.osLocales && info.osLocales.length>1 && !localStorage.getItem('rasner-lang-dont-ask')){
+        document.getElementById('langPicker').style.outline='1px solid #6d28ff';
+      }
+    }).catch(()=>{});
+    if(!langToApply) langToApply = detectLang(navigator.languages, navigator.language);
+  }
+  if(langToApply) { applyLang(langToApply); refreshDontAskLabel(); }
+
+  document.getElementById('btnCopy').onclick = async ()=>{
+    const txt = logBuffer.map(e=>`[${e.ts}] [${e.level}] ${e.line}`).join('\n');
+    const ok = await copyText(txt);
+    const b=document.getElementById('btnCopy'); b.textContent= ok ? (currentLang==='zh'?'已复制':'Copiado!') : 'Falhou'; setTimeout(()=> b.textContent='Copiar log',1500);
+  };
+  document.getElementById('btnCopyGH').onclick = async ()=>{
+    const dbg = await api.getDebugInfo();
+    const ok = await copyText(buildGitHubBody(dbg));
+    const b=document.getElementById('btnCopyGH'); const orig=b.textContent; b.textContent= ok ? '✓ GitHub' : 'Falhou'; setTimeout(()=> b.textContent=orig,1500);
+  };
+  document.getElementById('btnCopyLLM').onclick = async ()=>{
+    const dbg = await api.getDebugInfo();
+    const ok = await copyText(buildLLMPrompt(dbg));
+    const b=document.getElementById('btnCopyLLM'); const orig=b.textContent; b.textContent= ok ? '✓ LLM' : 'Falhou'; setTimeout(()=> b.textContent=orig,1500);
+  };
+  document.getElementById('btnLogs').onclick = ()=> api.openLogs();
+  document.getElementById('btnDev').onclick = ()=> api.openDevTools();
+  document.getElementById('btnRetry').onclick = ()=> api.retry();
+  document.getElementById('btnQuit').onclick = ()=> api.quit();
+  document.querySelectorAll('#langPicker button').forEach(b=>{
+    b.onclick = ()=> { applyLang(b.dataset.lang, {save:true}); refreshDontAskLabel(); };
+  });
+  // VitorHub credits + update UI
+  const vitorhubUrl = 'https://github.com/VitorHub/deepseek-harness-mod';
+  document.getElementById('vitorhubLink').onclick = (e)=>{ e.preventDefault(); window.open(vitorhubUrl, '_blank'); };
+  document.getElementById('starLink').onclick = (e)=>{ e.preventDefault(); window.open(vitorhubUrl, '_blank'); };
+  document.getElementById('starLink').href = vitorhubUrl;
+  document.getElementById('vitorhubLink').href = vitorhubUrl;
+  const updateBtn = document.getElementById('btnUpdate');
+  const updateStatus = document.getElementById('updateStatus');
+  if(api.onUpdateAvailable){
+    api.onUpdateAvailable(info=>{
+      updateStatus.textContent = (currentLang==='pt' ? `Nova versão v${info.version} disponível` : currentLang==='zh' ? `新版本 v${info.version} 可用` : `Update v${info.version} available`);
+      updateStatus.style.display='inline';
+      appendLog(`Atualização disponível: v${info.version}`, 'info');
+    });
+    api.onUpdateDownloaded(info=>{
+      updateStatus.textContent = (currentLang==='pt' ? `v${info.version} baixada — clique Atualizar` : `v${info.version} downloaded — click Update`);
+      updateStatus.style.display='inline';
+      updateBtn.style.display='inline';
+      updateBtn.textContent = currentLang==='pt' ? `⬇ Atualizar para v${info.version}` : `⬇ Update to v${info.version}`;
+      appendLog(`Atualização v${info.version} pronta para instalar`, 'info');
+    });
+    updateBtn.onclick = ()=> api.quitAndInstall();
+    // manual check button could be added, but auto-check runs em background
+  }
+}
+
+// also support ?lang= param for testing
+const qp = new URLSearchParams(location.search).get('lang');
+if(qp && I18N[qp]) applyLang(qp);
+</script>
 </body>
 </html>

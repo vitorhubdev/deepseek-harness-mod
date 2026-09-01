@@ -1,10 +1,5 @@
-/**
- * Environment isolation for OneBinary — DSH_HOME stays external so sessions survive reboot.
- * @module onebinary/shared/onebinary-env
- */
-
-import { join } from 'node:path'
 import { homedir } from 'node:os'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /**
  * Resolve external DSH_HOME for a packaged app.
@@ -30,8 +25,15 @@ export function resolveOneBinaryDshHome(electronUserData?: string): string {
  * Prevents accidental session loss when packager misconfigures paths.
  */
 export function assertDshHomeExternal(dshHome: string, resourceRoot: string): void {
-  const norm = (p: string) => p.replace(/\\/g, '/').toLowerCase()
-  if (norm(dshHome).startsWith(norm(resourceRoot).replace(/\/$/, '') + '/')) {
+  const absHome = resolve(dshHome)
+  const absResource = resolve(resourceRoot)
+  const isWindows = process.platform === 'win32' || process.platform === 'cygwin'
+  const targetHome = isWindows ? absHome.toLowerCase() : absHome
+  const targetResource = isWindows ? absResource.toLowerCase() : absResource
+
+  const rel = relative(targetResource, targetHome)
+  const isInside = rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..' && !isAbsolute(rel))
+  if (isInside) {
     throw new Error(`OneBinary: DSH_HOME must be outside resources, got ${dshHome} inside ${resourceRoot}`)
   }
 }

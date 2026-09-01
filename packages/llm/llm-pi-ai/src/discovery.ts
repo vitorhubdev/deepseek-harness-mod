@@ -374,9 +374,10 @@ export async function testModel(
   const started = Date.now()
   try {
     const installed = request.provider !== undefined ? catalogModels(request.provider) : undefined
+    const installedModel = installed?.get(request.model)
     const trimmed = request.baseURL?.trim()
     const hasExplicitBaseURL = trimmed !== undefined && trimmed.length > 0
-    const routeApi = request.api ?? (installed !== undefined ? sharedCatalogApi(installed) : undefined) ?? 'openai-completions'
+    const routeApi = request.api ?? installedModel?.api ?? (installed !== undefined ? sharedCatalogApi(installed) : undefined) ?? 'openai-completions'
 
     if (routeApi !== 'openai-completions' && routeApi !== 'openai-responses') {
       return {
@@ -405,7 +406,9 @@ export async function testModel(
       }
     }
     const apiKey = supplied === undefined || supplied.length === 0 ? undefined : usableProbeKey(supplied)
-    const url = `${baseURL.replace(/\/+$/, '')}/chat/completions`
+    const url = routeApi === 'openai-responses'
+      ? `${baseURL.replace(/\/+$/, '')}/responses`
+      : `${baseURL.replace(/\/+$/, '')}/chat/completions`
     const headers: Record<string, string> = {
       'content-type': 'application/json',
       accept: 'application/json',
@@ -418,15 +421,23 @@ export async function testModel(
     const effectiveSignal = request.signal !== undefined
       ? AbortSignal.any([request.signal, AbortSignal.timeout(10000)])
       : AbortSignal.timeout(10000)
-    const response = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
+    const body = routeApi === 'openai-responses'
+      ? JSON.stringify({
+        model: request.model,
+        input: 'ping',
+        max_output_tokens: 64,
+        stream: false,
+      })
+      : JSON.stringify({
         model: request.model,
         messages: [{ role: 'user', content: 'ping' }],
         max_tokens: 64,
         stream: false,
-      }),
+      })
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body,
       signal: effectiveSignal,
     })
     const latencyMs = Date.now() - started

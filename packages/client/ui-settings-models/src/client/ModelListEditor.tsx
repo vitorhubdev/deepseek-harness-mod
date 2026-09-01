@@ -208,6 +208,14 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     adoptedCount?: number
   } | undefined>(undefined)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const probeGenerationRef = useRef(0)
+  const [activeSnapshot, setActiveSnapshot] = useState<{
+    settingsNs: string
+    provider?: string
+    baseURL?: string
+    api?: string
+    apiKey?: string
+  } | undefined>(undefined)
 
   useEffect(() => () => {
     clearTimeout(copyTimer.current)
@@ -277,19 +285,21 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }))
   }
 
-  const discoverRequest = {
-    ...probe.provider === undefined ? {} : { provider: probe.provider },
-    ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
-    ...probe.api === undefined ? {} : { api: probe.api },
-    ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
-  }
-
   const fetchModels = async (): Promise<void> => {
+    const generation = ++probeGenerationRef.current
+    const snapshot = {
+      settingsNs: probe.settingsNs,
+      ...probe.provider === undefined ? {} : { provider: probe.provider },
+      ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
+      ...probe.api === undefined ? {} : { api: probe.api },
+      ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
+    }
     setBusy(true)
     setFailure(undefined)
     setFetchStatus(undefined)
     try {
-      const answer = await operations.discoverModels(probe.settingsNs, discoverRequest)
+      const answer = await operations.discoverModels(snapshot.settingsNs, snapshot)
+      if (probeGenerationRef.current !== generation) return
       if (answer.kind === 'refused') {
         setFailure(answer.message)
         return
@@ -299,9 +309,10 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         setFailure(t('fetchEmpty'))
         return
       }
+      setActiveSnapshot(snapshot)
       // Everything already configured starts unchecked, so adopting a
       // selection never silently rewrites a capacity the user corrected.
-      const known = new Set(models.map(model => textOf(model, 'id')))
+      const known = new Set(models.map(model => textOf(model, 'id')).filter(id => id.length > 0))
       const newModels = found.filter(model => !known.has(model.id))
       setCandidates(found)
       setPicked(new Set(newModels.map(model => model.id)))
@@ -312,16 +323,20 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         newCount: newModels.length,
       })
     } catch (error) {
+      if (probeGenerationRef.current !== generation) return
       // The transport rejected rather than answering; without this the button
       // would stay busy with nothing shown.
       setFailure(messageOf(error))
     } finally {
-      setBusy(false)
+      if (probeGenerationRef.current === generation) {
+        setBusy(false)
+      }
     }
   }
 
   const closePicker = (): void => {
     setCandidates(undefined)
+    setActiveSnapshot(undefined)
     setPicked(new Set())
     setOnlyFree(false)
     setTestStates({})
@@ -330,19 +345,21 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const adoptPicked = (): void => {
     /* v8 ignore next -- the dialog only renders with candidates loaded */
     if (candidates === undefined) return
-    const byId = new Map(models.map(model => [textOf(model, 'id'), model]))
+    const existingIds = new Set(
+      models.map(model => textOf(model, 'id')).filter(id => id.length > 0),
+    )
+    const resultModels = [...models]
     const pool = onlyFree ? freeCandidates : activeCandidates
     let added = 0
     for (const candidate of pool) {
       if (!picked.has(candidate.id)) continue
-      if (!byId.has(candidate.id)) added++
-      // A row the user already tuned wins over the provider's own numbers.
-      // Keyed by id, so a half-typed row whose id is still empty is not a
-      // match and the candidate joins as its own row — correct, since a row
-      // without an id is not yet a model and the create/apply gates refuse it.
-      byId.set(candidate.id, byId.get(candidate.id) ?? adopt(candidate))
+      if (!existingIds.has(candidate.id)) {
+        added++
+        existingIds.add(candidate.id)
+        resultModels.push(adopt(candidate))
+      }
     }
-    onChange([...byId.values()])
+    onChange(resultModels)
     setFetchStatus(prev => prev ? { ...prev, adoptedCount: added } : { total: pool.length, newCount: added, adoptedCount: added })
     closePicker()
   }
@@ -394,8 +411,15 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     const id = candidate.id
     if (testStates[id]?.status === 'testing') return
     setTestStates(prev => ({ ...prev, [id]: { status: 'testing' } }))
+    const target = activeSnapshot ?? {
+      settingsNs: probe.settingsNs,
+      ...probe.provider === undefined ? {} : { provider: probe.provider },
+      ...probe.baseURL === undefined || probe.baseURL.length === 0 ? {} : { baseURL: probe.baseURL },
+      ...probe.api === undefined ? {} : { api: probe.api },
+      ...probe.apiKey === undefined ? {} : { apiKey: probe.apiKey },
+    }
     try {
-      const answer = await operations.testModel(probe.settingsNs, { ...discoverRequest, model: id })
+      const answer = await operations.testModel(target.settingsNs, { ...target, model: id })
       if (answer.kind === 'refused') {
         setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: answer.message } }))
         return

@@ -271,9 +271,12 @@ function canonicalLinkPath(path: string): string | undefined {
   try {
     return join(realpathSync.native(dirname(path)), basename(path))
   } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code
     // A missing parent means the candidate cannot identify an existing owned link.
-    /* v8 ignore next 2 -- a non-ENOENT realpath failure requires a host filesystem fault */
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+    // Electron's asar patch throws `Invalid package <app.asar>` for candidates inside
+    // a non-existent asar (portable temp extraction with asar:false) — treat as not found.
+    /* v8 ignore next 3 -- a non-ENOENT realpath failure requires a host filesystem fault */
+    if (code === 'ENOENT' || String((error as Error).message ?? '').includes('Invalid package')) return undefined
     /* v8 ignore next -- see the host-filesystem exception above */
     throw error
   }
@@ -758,7 +761,16 @@ function packageDirFromAnchor(
   /* v8 ignore next */
   for (const searchPath of createRequire(anchor).resolve.paths(packageName) ?? []) {
     const candidate = join(searchPath, packageName)
-    if (existsSync(join(candidate, 'package.json')) && !exclude(candidate, packageName)) return candidate
+    let hasPkg = false
+    try {
+      hasPkg = existsSync(join(candidate, 'package.json'))
+    } catch {
+      // Electron's patched fs throws `Invalid package <app.asar>` when the candidate
+      // is inside a non-existent asar (portable's temp extraction with asar:false).
+      // Treat as not found and continue to the next searchPath (the real .../app folder).
+      hasPkg = false
+    }
+    if (hasPkg && !exclude(candidate, packageName)) return candidate
   }
   return undefined
 }

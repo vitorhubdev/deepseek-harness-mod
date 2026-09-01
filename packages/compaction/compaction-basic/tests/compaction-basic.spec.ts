@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import BasicCompactionEngine from '@deepseek-ai/dsh-compaction-basic'
 import type { BasicCompactionConfig } from '@deepseek-ai/dsh-compaction-basic'
+import * as regionModule from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { selectCompactableRange } from '@deepseek-ai/dsh-compaction-basic/src/region.ts'
 import { frameSummary } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
 import type { SummarizationInput, SummaryResult } from '@deepseek-ai/dsh-compaction-basic/src/summarizer.ts'
@@ -706,6 +707,43 @@ describe('pressure measurement and retention', () => {
 
     await expect(compactIfNeeded(compact, conversation(4)))
       .rejects.toThrow(/still above threshold after 1 compaction attempts/)
+  })
+
+  it('rejects when initial compaction reduces tokens but remains above threshold and subsequent range selection returns null', async () => {
+    class RangeNullEngine extends TestCompactionEngine {
+      callCount = 0
+      override async compactRegion(start: number, end: number, _agent: Agent, _signal?: AbortSignal): Promise<CompactionResult> {
+        this.callCount += 1
+        return {
+          compactionId: CompactionId('dummy-compaction'),
+          startSeq: start,
+          endSeq: end,
+          summarySeq: end + 1,
+          shadowedRange: { start, end },
+          shadowedSeqs: [start],
+          shadowedTokenCount: 50,
+          summary: [{ type: 'text' as const, text: 'summary' }],
+        }
+      }
+    }
+    const engine = new RangeNullEngine(createContext(), {
+      auto: false,
+      compactionRetries: 1,
+      thresholdRatio: 0.3,
+      retainTokens: 100,
+    })
+    const session = conversation(4)
+    const spy = vi.spyOn(regionModule, 'selectCompactableRange')
+      .mockReturnValueOnce({ start: 1, end: 5 })
+      .mockReturnValueOnce(null)
+
+    try {
+      await expect(engine.compactIfNeeded(agent(session, MODEL), 'pressure', SIGNAL))
+        .rejects.toThrow(/still above threshold after 2 compaction attempts/)
+      expect(spy).toHaveBeenCalledTimes(2)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('rounds a retention cut head-ward to preserve tool-call/result pairing', async () => {

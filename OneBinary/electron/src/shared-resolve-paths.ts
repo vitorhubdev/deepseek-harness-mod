@@ -4,26 +4,44 @@
  * @module onebinary/shared/resolve-paths
  */
 
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
+ * Where the packed app bundle (ASAR or app directory) lives at runtime.
+ */
+export function getAppRoot(): string {
+  const electronApp = (globalThis as unknown as { electron?: { app?: { getAppPath: () => string } } })?.electron?.app
+  if (typeof electronApp?.getAppPath === 'function') {
+    try {
+      return electronApp.getAppPath()
+    } catch {}
+  }
+
+  const electronResources = (globalThis as unknown as { process?: NodeJS.Process })?.process?.resourcesPath
+  if (typeof electronResources === 'string' && electronResources.length > 0) {
+    try {
+      if (existsSync(join(electronResources, 'app.asar'))) return join(electronResources, 'app.asar')
+      if (existsSync(join(electronResources, 'app'))) return join(electronResources, 'app')
+    } catch {}
+    return electronResources
+  }
+
+  const envResources = process.env.ONEBINARY_RESOURCE_DIR
+  if (typeof envResources === 'string' && envResources.length > 0) return envResources
+
+  // Dev fallback — source checkout
+  return fileURLToPath(new URL('../../apps/cli', import.meta.url))
+}
+
+/**
  * Where the packed harness lives at runtime.
- * Electron: `process.resourcesPath` (…/resources/app.asar or …/resources).
- * Tauri sidecar: `resourceDir()` resolved by Rust and passed as env `ONEBINARY_RESOURCE_DIR`.
+ * Electron: `app.getAppPath()` → …/resources/app.asar (asar:true) or …/resources/app (asar:false).
  * Dev (tsx): falls back to the source checkout.
  */
 export function getResourceRoot(): string {
-  // Electron injects this global
-  const electronResources = (globalThis as unknown as { process?: NodeJS.Process })?.process?.resourcesPath
-  if (typeof electronResources === 'string' && electronResources.length > 0) return electronResources
-
-  // Tauri sidecar passes this env
-  const tauriResources = process.env.ONEBINARY_RESOURCE_DIR
-  if (typeof tauriResources === 'string' && tauriResources.length > 0) return tauriResources
-
-  // Dev fallback — source checkout, same logic as apps/cli/src/profile-boot.ts:74
-  return fileURLToPath(new URL('../../apps/cli', import.meta.url))
+  return getAppRoot()
 }
 
 /**

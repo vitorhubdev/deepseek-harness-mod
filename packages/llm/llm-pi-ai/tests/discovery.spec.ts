@@ -423,4 +423,62 @@ describe('probe key format', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toContain('has no test probe in this build')
   })
+
+  it('calls /responses with input payload when api is openai-responses', async () => {
+    let requestedUrl = ''
+    let requestedBody = ''
+    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+      requestedUrl = String(url)
+      requestedBody = String(init?.body ?? '')
+      return new Response(JSON.stringify({ id: 'resp-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const result = await testModel({
+      baseURL: 'https://api.openai.com/v1',
+      api: 'openai-responses',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(requestedUrl).toBe('https://api.openai.com/v1/responses')
+    expect(JSON.parse(requestedBody)).toEqual({
+      model: 'gpt-4o',
+      input: 'ping',
+      max_output_tokens: 64,
+      stream: false,
+    })
+  })
+
+  it('calls /chat/completions with messages payload when api is openai-completions', async () => {
+    let requestedUrl = ''
+    let requestedBody = ''
+    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+      requestedUrl = String(url)
+      requestedBody = String(init?.body ?? '')
+      return new Response(JSON.stringify({ id: 'chat-1' }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    })
+
+    const result = await testModel({
+      baseURL: 'https://api.openai.com/v1',
+      api: 'openai-completions',
+      model: 'gpt-4o',
+      apiKey: 'sk-test',
+    })
+
+    expect(result.ok).toBe(true)
+    expect(requestedUrl).toBe('https://api.openai.com/v1/chat/completions')
+    expect(JSON.parse(requestedBody)).toEqual({
+      model: 'gpt-4o',
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 64,
+      stream: false,
+    })
+  })
 })

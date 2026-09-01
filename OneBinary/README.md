@@ -1,63 +1,50 @@
-# OneBinary — Distribuição OneFile do DeepSeek Harness
+# OneBinary — Distribuição OneFile Electron do DeepSeek Harness
 
-Distribuições **clica-e-abre** do Harness sem quebrar a arquitetura Cordis.
+**Um arquivo, duplo-clique, sem quebrar a arquitetura Cordis.**
 
-> **Invariante:** `DSH_HOME` (`~/.dsh` ou `%APPDATA%/.dsh`) fica **fora** do executável. Sessões, `cordis.patch.yml`, `settings.yaml` e plugins instalados via `dsh plugin` sobrevivem ao fechar/reabrir. Ver `docs/onefile-viability.md` e `docs/architecture.md:41`.
+> **Invariante:** `DSH_HOME` (`~/.dsh` ou `%APPDATA%/.dsh`) fica **fora** do executável. Sessões, `cordis.patch.yml`, `settings.yaml` e plugins instalados via `dsh plugin` sobrevivem ao fechar/reabrir. Ver `docs/onefile-viability.md`, `OneBinary/electron/PLAN.md` e `docs/architecture.md:41`.
 
 ## Estrutura
 
 ```
 OneBinary/
-  shared/               # Lógica compartilhada (Node) entre Electron e Tauri
-    resolve-paths.ts    # INSTALL_ANCHOR / bareModuleBaseUrl / distIndex
-    onebinary-env.ts    # DSH_HOME externo + DSH_LAUNCH_ENVIRONMENT
-  electron/             # Trilha A — Electron (recomendada primeiro, 0 perdas)
-    package.json
-    electron-builder.yml
-    src/main.ts
-    src/preload.ts
-  tauri/                # Trilha B — Tauri 2 + Node sidecar (leve, 15-35MB)
-    src-tauri/
-      Cargo.toml
-      tauri.conf.json
-      src/main.rs
-    src/                # placeholder frontend (reusa apps/web/dist)
+  electron/               # Distribuição Electron — única trilha (Tauri removido)
+    package.json          # electron 44.1.0 + builder 26.15.3
+    electron-builder.yml  # asar + portable single-file
+    src/
+      main.ts             # singleInstanceLock + DSH_HOME externo + runProfile(web)
+      preload.ts          # contextBridge
+      shared-resolve-paths.ts
+      shared-onebinary-env.ts
+    assets/splash.html
+    build/afterPack.cjs   # prune src/maps antes do asar (otimização 653→72 MB)
+    PLAN.md               # plano completo verificado 44.1.0
 ```
 
-## Por que duas trilhas?
-
-| Critério | Electron | Tauri 2 + sidecar |
-|---|---|---|
-| Tamanho | 180–280 MB (Chromium+Node) | 15–35 MB (WebView nativo) |
-| Preserva plugins | ✅ 100% — Node nativo, `koffi`/`node-pty`/`landlock-run` funcionam | ✅ só com sidecar Node |
-| Risco | Baixo — `boot()` `packages/boot/app-boot/src/index.ts:772` reaproveitado 1:1 | Médio — precisa proxy Rust→Node + `extraResources` |
-| GitHub build | `electron-builder --win portable` | `tauri build` + `externalBin: node` |
-| Recomendação | **Fazer primeiro** (2–3 sem). | **Fazer segundo**, reaproveitando `shared/` |
-
-`Wails 3.0 Alpha` foi avaliado e descartado para produção agora (contrato `runtime.*` quebra sem semver). Se quiser, o scaffold Tauri já isola o sidecar e um futuro port para Wails 2 seria trivial.
-
-## Como usar (dev)
+## Build
 
 ```sh
-# Pré-requisito: build oficial já gera lib/ + dist/
+# Pré-requisito: gera lib/ + dist/ (host+client+web)
 pnpm run build:official
 
-# Electron (Windows portable, sem installer)
-pnpm --filter onebinary-electron run build:win
+# Dev (tsx, sem empacotar)
+pnpm --filter onebinary-electron run dev
 
-# Tauri (precisa Rust 1.77+ e WebView2)
-pnpm --filter onebinary-tauri run build
-# ou direto:
-cargo tauri build --manifest-path OneBinary/tauri/src-tauri/Cargo.toml
+# Dir unpacked (teste rápido, sem portable)
+pnpm --filter onebinary-electron run build:dir
+# → OneBinary/electron/dist/installer/win-unpacked/DeepSeek Harness.exe
+
+# Portable single-file (entrega)
+pnpm --filter onebinary-electron run build:win
+# → OneBinary/electron/dist/installer/DeepSeek Harness 0.1.0.exe  ~110 MB
 ```
 
-## GitHub — compila ambas em paralelo
+## GitHub
 
-Workflow `.github/workflows/onebinary.yml` dispara em `push` com `paths: OneBinary/**` + manual `workflow_dispatch`. Jobs `build-electron` e `build-tauri` rodam em `windows-latest` em paralelo, cada um faz `pnpm run build:official` + build do alvo e sobe artifact. Ver `docs/onefile-viability.md:5` para matriz completa.
+Workflow `.github/workflows/onebinary.yml` — job `build-electron` em `windows-latest` (`pnpm run build:official` + `electron-builder --win portable` + upload artifact). Dispara em `push` com `paths: OneBinary/electron/**, apps/**, packages/**` e manual `workflow_dispatch`.
 
-## Garantia de não-quebra do código atual
+## Garantia de não-quebra
 
-- `OneBinary/` **não** está em `pnpm-workspace.yaml:1` (`packages: [...]`). Logo `pnpm install`, `pnpm run typecheck`, `tsc -b tsconfig.host.json` e gates `verify-*` não enxergam `OneBinary/`. Zero impacto em `packages/*/*` e `apps/*`.
-- `OneBinary/shared/resolve-paths.ts` importa `@deepseek-ai/dsh-app-boot` e `@deepseek-ai/dsh-home-paths` como dependências externas — não duplica tipos.
-- Ambos os alvos usam `process.resourcesPath` (Electron) / `resourceDir()` (Tauri) como `bareModuleBaseUrl` para o Loader Cordis, preservando `profile.ts:42` `.dsh-module-fallback`.
-- Nenhum arquivo em `apps/` ou `packages/` é editado por este scaffold; integração é por overlay `extraResources`/`resources`.
+- `OneBinary/electron` **está** em `pnpm-workspace.yaml:14` como workspace para linkar `@deepseek-ai/dsh*` via `workspace:^` — mas `OneBinary/` não é escaneado por `verify-*` (só `packages/*/*` e `apps/*`). `pnpm run typecheck` continua `tsc -b tsconfig.host.json` + `tsconfig.client.json` sem incluir `OneBinary/`.
+- Nenhum arquivo em `apps/` ou `packages/` foi editado; integração é `files: dist/*.js + ../../apps/cli/lib + ../../apps/web/dist` + `node_modules` via pnpm workspace.
+- `Tauri` removido conforme decisão — `OneBinary/tauri/` e `OneBinary/shared/` deletados; lógica compartilhada movida para `OneBinary/electron/src/shared-*`.
