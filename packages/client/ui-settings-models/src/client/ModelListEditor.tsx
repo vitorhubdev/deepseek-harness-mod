@@ -341,6 +341,9 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     setOnlyFree(false)
     setTestStates({})
     setCandidateQuery('')
+    // Advance the generation so in-flight per-model tests drop their results
+    // instead of resurrecting state into a fresh (or different-endpoint) picker.
+    probeGenerationRef.current += 1
   }
 
   const adoptPicked = (): void => {
@@ -423,6 +426,9 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
   const testModel = async (candidate: LlmDiscoveredModel): Promise<void> => {
     const id = candidate.id
     if (testStates[id]?.status === 'testing') return
+    // Fence: a fetch or close that advances the generation after these awaits
+    // belongs to a different picker snapshot — the stale result must not write.
+    const generation = probeGenerationRef.current
     setTestStates(prev => ({ ...prev, [id]: { status: 'testing' } }))
     const target = activeSnapshot ?? {
       settingsNs: probe.settingsNs,
@@ -433,6 +439,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
     }
     try {
       const answer = await operations.testModel(target.settingsNs, { ...target, model: id })
+      if (probeGenerationRef.current !== generation) return
       if (answer.kind === 'refused') {
         setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: answer.message } }))
         return
@@ -441,6 +448,7 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
       if (v.ok) setTestStates(prev => ({ ...prev, [id]: { status: 'ok', latencyMs: v.latencyMs } }))
       else setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: v.latencyMs, error: v.error ?? 'failed' } }))
     } catch (error) {
+      if (probeGenerationRef.current !== generation) return
       setTestStates(prev => ({ ...prev, [id]: { status: 'fail', latencyMs: 0, error: messageOf(error) } }))
     }
   }

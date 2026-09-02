@@ -135,8 +135,10 @@ export class TerminalSanitizer {
 
   private enforcePendingBound(): void {
     if (Buffer.byteLength(this.pending) <= this.maxPendingBytes) return
-    this.discardMode = undefined
-    this.discardOscEscape = false
+    // Keep discarding the unterminated sequence's continuation bytes in later
+    // chunks until its real terminator arrives; wiping the mode would leak the
+    // control payload as terminal text.
+    this.discardMode = this.pending[1] === ']' ? 'osc' : 'csi'
     this.pending = ''
   }
 

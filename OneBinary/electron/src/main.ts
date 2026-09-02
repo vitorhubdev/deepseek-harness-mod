@@ -100,6 +100,15 @@ function writeLog(line: string): void {
 let win: BrowserWindow | undefined
 let harnessCtx: unknown | undefined
 let bootPhase = 'init'
+/** Bounded shutdown controller returned by runProfile (apps/cli process-shutdown contract). */
+interface HarnessShutdown {
+  shutdown: (code: number) => Promise<void>
+}
+let harnessShutdown: HarnessShutdown | undefined
+/** Resolves the authenticated web UI URL of the live webRuntime; set once boot completes. */
+let appUrlResolver: (() => Promise<string>) | undefined
+let quitTransactionStarted = false
+let quitAndInstallRequested = false
 
 function emitProgress(
   percent: number,
@@ -214,7 +223,8 @@ ipcMain.handle('onebinary:openDevTools', () => {
 ipcMain.handle('onebinary:retry', () => {
   writeLog('Usuário clicou Reiniciar — relaunch')
   app.relaunch()
-  app.exit(0)
+  // quit() (não exit()) passa pelo before-quit e pela transação de shutdown limitada.
+  app.quit()
 })
 
 ipcMain.handle('onebinary:quit', () => app.quit())
@@ -241,6 +251,10 @@ async function createWindow(): Promise<void> {
     },
     autoHideMenuBar: true,
   })
+  // Clear the module reference when the window dies so second-instance /
+  // activate never operate on a destroyed BrowserWindow.
+  const created = win
+  created.once('closed', () => { if (win === created) win = undefined })
 
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -351,7 +365,7 @@ async function bootHarness(): Promise<void> {
     profile: string
     patchFiles: string[]
     args: string[]
-  }) => Promise<{ ctx: unknown; shutdown: () => Promise<void> }>
+  }) => Promise<{ ctx: unknown; shutdown: HarnessShutdown }>
 
   try {
     const isDev = existsSync(join(import.meta.dirname, '../../../apps/cli/src/profile-boot.ts'))
@@ -381,11 +395,10 @@ async function bootHarness(): Promise<void> {
   }, 650)
 
   let ctx: Awaited<ReturnType<typeof runProfile>>['ctx'] | undefined
-  let shutdown: Awaited<ReturnType<typeof runProfile>>['shutdown'] | undefined
   try {
     const result = await runProfile({ environment, profile: 'web', patchFiles: [], args: [] })
     ctx = result.ctx
-    shutdown = result.shutdown
+    harnessShutdown = result.shutdown
     harnessCtx = ctx as unknown
     clearInterval(fakeTimer)
     writeLog('runProfile resolvido — ctx criado')
@@ -429,23 +442,50 @@ async function bootHarness(): Promise<void> {
 
   // Navigate — use connection.authenticatedUrl so the Electron window has the token
   // (webRuntime has no url field; the token lives in HostConnectionService).
+  // Single-completion state shared by the AppReady hook and the fallback timers:
+  // after the first successful loadURL no further navigation may occur.
+  let navigated = false
+  let navigateInFlight = false
+  let navTimer: ReturnType<typeof setTimeout> | undefined
+  let navInterval: ReturnType<typeof setInterval> | undefined
+  let unsubscribeReady: (() => void) | undefined
+
+  const resolveAppUrl = async (): Promise<{ url: string; base: string; hasAuth: boolean }> => {
+    const connection = (ctx as unknown as { get?: (k: string) => { authenticatedUrl?: (u: string) => string } })?.get?.('connection') as
+      | { authenticatedUrl?: (u: string) => string }
+      | undefined
+    const webServer = (ctx as unknown as { get?: (k: string) => { config?: { port?: number }; listenedPort?: number; host?: string } })?.get?.('webServer') as
+      | { config?: { port?: number }; listenedPort?: number; host?: string }
+      | undefined
+    const port = (webServer as { listenedPort?: number; config?: { port?: number } } | undefined)?.listenedPort
+      ?? (webServer as { config?: { port?: number } } | undefined)?.config?.port
+      ?? 3080
+    const base = `http://127.0.0.1:${port}`
+    const url = connection?.authenticatedUrl ? connection.authenticatedUrl(base) : base
+    return { url, base, hasAuth: Boolean(connection?.authenticatedUrl) }
+  }
+  // Exposed for macOS reopen (activate / second-instance): the resolver is
+  // re-run per call so each window gets a fresh authenticated URL.
+  appUrlResolver = async () => (await resolveAppUrl()).url
+
+  const cancelNavigationRetries = (): void => {
+    if (navTimer !== undefined) { clearTimeout(navTimer); navTimer = undefined }
+    if (navInterval !== undefined) { clearInterval(navInterval); navInterval = undefined }
+    if (unsubscribeReady !== undefined) { unsubscribeReady(); unsubscribeReady = undefined }
+  }
+
   const tryNavigate = async (): Promise<boolean> => {
+    if (navigated || navigateInFlight) return navigated
+    navigateInFlight = true
     try {
-      const connection = (ctx as unknown as { get?: (k: string) => { authenticatedUrl?: (u: string) => string } })?.get?.('connection') as
-        | { authenticatedUrl?: (u: string) => string }
-        | undefined
-      const webServer = (ctx as unknown as { get?: (k: string) => { config?: { port?: number }; listenedPort?: number; host?: string } })?.get?.('webServer') as
-        | { config?: { port?: number }; listenedPort?: number; host?: string }
-        | undefined
-      const port = (webServer as { listenedPort?: number; config?: { port?: number } } | undefined)?.listenedPort
-        ?? (webServer as { config?: { port?: number } } | undefined)?.config?.port
-        ?? 3080
-      const base = `http://127.0.0.1:${port}`
-      const url = connection?.authenticatedUrl ? connection.authenticatedUrl(base) : base
+      const { url, base, hasAuth } = await resolveAppUrl()
       const logUrl = url.replace(/([?&]token=)[^&]+/, '$1***')
-      writeLog(`Navegando para ${logUrl} (base=${base} hasAuth=${Boolean(connection?.authenticatedUrl)})`)
+      writeLog(`Navegando para ${logUrl} (base=${base} hasAuth=${hasAuth})`)
       if (win && !win.isDestroyed()) {
         await win.loadURL(url)
+        if (navigated) return true
+        navigated = true
+        cancelNavigationRetries()
         writeLog(`loadURL ok — ${logUrl}`)
         emitProgress(100, 'Pronto!', logUrl)
         return true
@@ -454,6 +494,8 @@ async function bootHarness(): Promise<void> {
     } catch (error) {
       writeLog(`loadURL falhou: ${String(error)}`)
       return false
+    } finally {
+      navigateInFlight = false
     }
   }
 
@@ -461,29 +503,39 @@ async function bootHarness(): Promise<void> {
   const maybeAppReady = (ctx as unknown as { get?: (k: string) => { onReady: (cb: () => void) => () => void } })?.get?.('appReady')
   if (maybeAppReady) {
     writeLog('AppReady encontrado — aguardando onReady')
-    maybeAppReady.onReady(() => void tryNavigate())
+    unsubscribeReady = maybeAppReady.onReady(() => void tryNavigate())
     // safety: if onReady never fires, poll
-    setTimeout(() => void tryNavigate(), 2500)
+    navTimer = setTimeout(() => void tryNavigate(), 2500)
   } else {
     writeLog('AppReady ausente — polling webRuntime em 1.5s')
-    setTimeout(() => void tryNavigate(), 1500)
+    navTimer = setTimeout(() => void tryNavigate(), 1500)
     // keep trying up to 12s caso o servidor suba devagar
     let attempts = 0
-    const iv = setInterval(() => {
+    navInterval = setInterval(() => {
       attempts += 1
-      if (attempts > 6) clearInterval(iv)
-      void tryNavigate().then(ok => { if (ok) clearInterval(iv) })
+      if (attempts > 6) cancelNavigationRetries()
+      void tryNavigate()
     }, 2000)
   }
 
-  // Graceful shutdown mirrors apps/cli/src/process-shutdown.ts
-  const c = ctx as unknown as { fiber: { dispose: () => Promise<void> } }
-  app.on('before-quit', () => {
-    writeLog('before-quit — disposing Cordis root fiber')
-    void c.fiber.dispose()
+  // Graceful shutdown joins the CLI's bounded ProcessShutdown: the first
+  // before-quit preventDefaults, disposes within PROCESS_SHUTDOWN_TIMEOUT_MS,
+  // and then exits; repeated quit attempts join instead of racing the dispose.
+  app.on('before-quit', (event) => {
+    if (quitAndInstallRequested) return // updater owns this quit — let it proceed
+    if (quitTransactionStarted) {
+      event.preventDefault()
+      return
+    }
+    if (harnessShutdown === undefined) return // boot incompleto — nada a dispor
+    quitTransactionStarted = true
+    event.preventDefault()
+    writeLog('before-quit — transação de shutdown limitada (ProcessShutdown)')
+    void harnessShutdown.shutdown(0).then(
+      () => { app.exit(0) },
+      () => { app.exit(0) },
+    )
   })
-  // also proxy shutdown if harnessCtx is kept
-  void shutdown
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +567,12 @@ async function setupAutoUpdate(): Promise<void> {
     setInterval(() => void autoUpdater.checkForUpdates().catch(()=>{}), 6*60*60*1000)
     // IPC manual: renderer pode pedir check
     ipcMain.handle('onebinary:checkForUpdates', () => autoUpdater.checkForUpdates())
-    ipcMain.handle('onebinary:quitAndInstall', () => autoUpdater.quitAndInstall())
+    ipcMain.handle('onebinary:quitAndInstall', () => {
+      // The updater owns this quit: skip the dispose transaction so its
+      // install-on-quit flow is not stalled by preventDefault.
+      quitAndInstallRequested = true
+      autoUpdater.quitAndInstall()
+    })
   } catch (e) {
     writeLog(`autoUpdater desabilitado: ${String(e)}`)
   }
@@ -543,19 +600,38 @@ app.whenReady().then(async () => {
   }, 250)
 })
 
-app.on('second-instance', () => {
-  if (win) {
+/**
+ * Focus the live window, or recreate one connected to the running webRuntime.
+ * macOS keeps the process alive after window-all-closed; activate and
+ * second-instance both land here. The resolver is only present once the boot
+ * completed, so a reopen during boot (or after a failed boot) keeps the splash.
+ */
+function reopenMainWindow(): void {
+  if (win && !win.isDestroyed()) {
     if (win.isMinimized()) win.restore()
     win.focus()
+    return
   }
-})
+  if (BrowserWindow.getAllWindows().length > 0) return
+  void createWindow().then(async () => {
+    if (appUrlResolver === undefined) return // boot não concluído — splash permanece
+    try {
+      const url = await appUrlResolver()
+      if (win && !win.isDestroyed()) await win.loadURL(url)
+    } catch (error) {
+      writeLog(`Reabertura: reconexão falhou: ${String(error)}`)
+    }
+  })
+}
+
+app.on('second-instance', () => reopenMainWindow())
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) void createWindow()
+  if (BrowserWindow.getAllWindows().length === 0) reopenMainWindow()
 })
 
 process.on('uncaughtException', error => {
