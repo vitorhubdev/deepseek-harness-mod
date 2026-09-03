@@ -31,6 +31,9 @@ dist/
 **/dist/
 build/
 **/build/
+# Exceção: hook de prune do instalador precisa ser versionado
+!OneBinary/electron/build/
+!OneBinary/electron/build/afterPack.cjs
 target/
 **/target/
 lib/

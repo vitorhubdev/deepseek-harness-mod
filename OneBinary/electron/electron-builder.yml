@@ -19,6 +19,10 @@ asar: false
 compression: normal
 npmRebuild: false
 removePackageScripts: true
+# Prune de payload (src/tests/maps, test.js, CHANGELOGs, nativos de outros
+# SOs) — sem ele o portable carrega centenas de MB/arqs mortos e cada
+# abertura fria paga a extração deles para %TEMP%.
+afterPack: build/afterPack.cjs
 
 # Setup instalado abre praticamente instantâneo (sem extração para %TEMP%).
 # deleteAppDataOnUninstall=false preserva DSH_HOME/sessões no uninstall.
