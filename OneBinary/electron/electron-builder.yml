@@ -13,9 +13,22 @@ directories:
 # Verified: asar:false gives correct resolution for 202 @deepseek-ai/dsh-* packages + vendored cordis.
 asar: false
 
-compression: maximum
+# normal em vez de maximum — o portable extrai ~260 MB para %TEMP% a cada
+# abertura; maximum economiza alguns MB no download mas custa segundos de
+# descompressão em toda abertura fria. O instalado (nsis) não extrai nada.
+compression: normal
 npmRebuild: false
 removePackageScripts: true
+
+# Setup instalado abre praticamente instantâneo (sem extração para %TEMP%).
+# deleteAppDataOnUninstall=false preserva DSH_HOME/sessões no uninstall.
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  shortcutName: DeepMod
+portable:
+  requestExecutionLevel: user
 
 # Auto-update via GitHub Releases — electron-updater lê `latest.yml` do release.
 # O upload dos artefatos é exclusivo do job release-attach (.github/workflows/onebinary.yml),

@@ -17,10 +17,8 @@ import {
 } from './shared-resolve-paths.ts'
 import { assertDshHomeExternal, resolveOneBinaryDshHome } from './shared-onebinary-env.ts'
 
-// Cordis HMR requires V8 internals — web profile uses `patchReload: live` which mounts
-// @deepseek-ai/cordis-plugin-hmr. That plugin checks `process.execArgv --expose-internals`
-// and would otherwise crash the boot with `failed to apply loader entry b7bbc79a`.
-app.commandLine.appendSwitch('js-flags', '--expose-internals')
+// O perfil web é patchado para `startup` no bootHarness — HMR live desativado,
+// então --expose-internals só desotimizaria o V8 e atrasaria o boot. Removido.
 
 // ---------------------------------------------------------------------------
 // Single instance + external DSH_HOME (must be before loadLayeredEnv)
@@ -96,6 +94,8 @@ function writeLog(line: string): void {
     } catch {}
   }
 }
+
+const BOOT_T0 = performance.now()
 
 let win: BrowserWindow | undefined
 let harnessCtx: unknown | undefined
@@ -239,7 +239,7 @@ async function createWindow(): Promise<void> {
     height: 860,
     minWidth: 980,
     minHeight: 640,
-    show: false,
+    show: true,
     backgroundColor: '#0a0a0c',
     webPreferences: {
       preload: join(import.meta.dirname, 'preload.js'),
@@ -277,8 +277,6 @@ async function createWindow(): Promise<void> {
     },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-
-  win.once('ready-to-show', () => win?.show())
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
@@ -486,7 +484,7 @@ async function bootHarness(): Promise<void> {
         if (navigated) return true
         navigated = true
         cancelNavigationRetries()
-        writeLog(`loadURL ok — ${logUrl}`)
+        writeLog(`loadURL ok — ${logUrl} — boot total em ${((performance.now() - BOOT_T0) / 1000).toFixed(1)}s`)
         emitProgress(100, 'Pronto!', logUrl)
         return true
       }
@@ -545,7 +543,9 @@ async function setupAutoUpdate(): Promise<void> {
   if (!app.isPackaged) return
   try {
     const { autoUpdater } = await import('electron-updater')
-    autoUpdater.logger = { info: (m: string) => writeLog(`[updater] ${m}`), warn: (m: string) => writeLog(`[updater] WARN ${m}`), error: (m: string) => writeLog(`[updater] ERR ${m}`), debug: () => {} } as unknown as typeof autoUpdater.logger
+    if (autoUpdater.logger !== undefined) {
+      autoUpdater.logger = { info: (m: string) => writeLog(`[updater] ${m}`), warn: (m: string) => writeLog(`[updater] WARN ${m}`), error: (m: string) => writeLog(`[updater] ERR ${m}`), debug: () => {} } as unknown as typeof autoUpdater.logger
+    }
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
     // Não bloquear boot — checa em background

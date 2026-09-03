@@ -34,9 +34,13 @@ pnpm --filter onebinary-electron run dev
 pnpm --filter onebinary-electron run build:dir
 # → OneBinary/electron/dist/installer/win-unpacked/DeepSeek Harness.exe
 
-# Portable single-file (entrega)
+# Portable single-file + Setup instalado (entrega)
 pnpm --filter onebinary-electron run build:win
-# → OneBinary/electron/dist/installer/DeepSeek Harness 0.1.0.exe  ~110 MB
+# → OneBinary/electron/out/DeepMod-*.exe (portable) + DeepMod Setup *.exe (nsis)
+#
+# Abertura: prefira o Setup — o app instalado abre praticamente instantâneo.
+# O portable extrai ~260 MB para %TEMP% a cada abertura fria (pasta aleatória
+# nova por execução); compression normal minimiza esse custo.
 ```
 
 ## GitHub
