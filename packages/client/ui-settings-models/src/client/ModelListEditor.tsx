@@ -311,10 +311,12 @@ export function ModelListEditor(props: ModelListEditorProps): ReactNode {
         return
       }
       setActiveSnapshot(snapshot)
+      setCandidates(found)
       // Everything already configured starts unchecked, so adopting a
       // selection never silently rewrites a capacity the user corrected.
       const known = new Set(models.map(model => textOf(model, 'id')).filter(id => id.length > 0))
       const newModels = found.filter(model => !known.has(model.id))
+      setPicked(new Set(newModels.map(model => model.id)))
       setCandidateQuery('')
       setOnlyFree(false)
       setTestStates({})

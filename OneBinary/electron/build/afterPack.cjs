@@ -78,6 +78,37 @@ module.exports = async function afterPack(context) {
   for (const cand of candidates) {
     await walkAndPrune(cand)
   }
+  // Deterministic boot entry: tsdown code-splits profile-boot into hashed
+  // chunks (profile-boot-<hash>.js), but main.ts imports the stable path
+  // apps/cli/lib/profile-boot.js. Probe the staged chunks for the runProfile
+  // export and write a stable re-export shim so the packaged exe never fails
+  // with ERR_MODULE_NOT_FOUND after an upstream bundling change.
+  for (const root of [appDir, context.appOutDir]) {
+    await ensureStableProfileBoot(root)
+  }
   // Also prune the pnpm store's src if present via .. walk
   console.log('afterPack: done')
+}
+
+async function ensureStableProfileBoot(appRoot) {
+  const { readdir: rd, writeFile } = require('node:fs/promises')
+  const { pathToFileURL } = require('node:url')
+  const libDir = join(appRoot, 'apps', 'cli', 'lib')
+  let entries = []
+  try { entries = await rd(libDir, { withFileTypes: true }) } catch { return }
+  if (entries.some(e => !e.isDirectory() && e.name === 'profile-boot.js')) return
+  const chunks = entries.filter(e => !e.isDirectory() && /^profile-boot-[A-Za-z0-9_-]+\.js$/.test(e.name)).map(e => e.name)
+  for (const chunk of chunks) {
+    try {
+      const mod = await import(pathToFileURL(join(libDir, chunk)).href)
+      if (mod && typeof mod.runProfile === 'function') {
+        await writeFile(join(libDir, 'profile-boot.js'), `export * from './${chunk}'\n`, 'utf8')
+        console.log(`afterPack: stable profile-boot.js -> ${chunk}`)
+        return
+      }
+    } catch (error) {
+      console.log(`afterPack: probe ${chunk} failed: ${String(error && error.message || error)}`)
+    }
+  }
+  console.log('afterPack: WARN no profile-boot chunk exporting runProfile found')
 }
