@@ -307,7 +307,7 @@ describe('the preset list', () => {
     })
     // A foreign implementation resolving to no promise must not crash the
     // entry: the click is a no-op and the panel stays open.
-    actions.startCreatorDraft?.mockImplementation(() => undefined as unknown as Promise<unknown>)
+    actions.startCreatorDraft?.mockImplementation(() => undefined as unknown as Promise<void>)
     fireEvent.click(screen.getByRole('button', { name: en.creatorDraft }))
     await Promise.resolve()
     expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
