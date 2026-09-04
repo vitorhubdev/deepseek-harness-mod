@@ -64,7 +64,7 @@ const { asOfSeq, values } = ctx.sessionProjections.snapshot(session)
 
 ### Persisted checkpoints
 
-Every unit's state is checkpointed — client-visible and host-only alike — through `checkpoint(session)`, and the sibling [session-projection-cache](../session-projection-cache/README.md) persists those checkpoints so cold reads skip full log loads. Checkpoint watermarks use `SessionSeqCursor` (`-1` for an empty log), while replay starts use `SessionLogOffset`; `restoreFloor` and `restore` implement the read recipe without conflating an existing event with a log gap.
+Every unit's state is checkpointed — client-visible and host-only alike — through `checkpoint(session)`, and the sibling [session-projection-cache](../session-projection-cache/README.md) persists those checkpoints so cold reads skip refolding the checkpointed prefix. Live resume still loads the full log to seed the session; suffix-only readers combine `restoreFloor` with `restore` (or `coldSnapshot` with a floor `baseSeq`). Checkpoint watermarks use `SessionSeqCursor` (`-1` for an empty log), while replay starts use `SessionLogOffset`; `restoreFloor` and `restore` implement the read recipe without conflating an existing event with a log gap.
 
 -----
 

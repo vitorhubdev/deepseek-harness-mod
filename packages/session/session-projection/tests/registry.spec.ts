@@ -209,6 +209,35 @@ describe('SessionProjectionRegistry drive', () => {
     expect(snapshot.asOfSeq).toBe(session.seq - 1)
   })
 
+  it('retains the folded prefix when a unit apply throws, so retries cost O(1)', async () => {
+    const { ctx, session } = await harness()
+    let calls = 0
+    const poisonState = 30
+    ctx.sessionProjections.register({
+      key: 'test/count',
+      stateSchema: z.number().int().nonnegative(),
+      init: () => 0,
+      apply: (state) => {
+        calls += 1
+        if (state === poisonState) throw new Error('poison state')
+        return state + 1
+      },
+      stateVersion: 1,
+    })
+    for (let index = 0; index < 50; index++) {
+      try {
+        mark(session, [`m${index}`])
+      } catch {
+        // The poison event (and every later one) surfaces the unit failure
+        // through the append; the log keeps the events regardless.
+      }
+    }
+    // 30 prefix applies plus exactly one failing apply per subsequent event
+    // (the poison one and the 19 after it) — a full refold per retry would
+    // cost hundreds of applies here instead.
+    expect(calls).toBe(50)
+  })
+
   it('builds the cell lazily from the full log for a unit registered after events flowed', async () => {
     const { ctx, session } = await harness()
     mark(session, ['pre-registration'])

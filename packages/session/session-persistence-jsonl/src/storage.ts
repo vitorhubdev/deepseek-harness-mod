@@ -81,6 +81,9 @@ export interface StorageHandleState {
 export class JsonlSessionHandle implements SessionHandle {
   private chain: Promise<unknown> = Promise.resolve()
   private closing: Promise<void> | undefined
+  /** Monotonic turn numbers; `closeTicket` snapshots this at close start so pre-close turns proceed. */
+  private opTicket = 0
+  private closeTicket: number | undefined
   private observedLength = 0
   /** Routed live events awaiting their batching deadline (persistence-owned copies). */
   private buffered: SessionEvent[] = []
@@ -159,16 +162,23 @@ export class JsonlSessionHandle implements SessionHandle {
   /**
    * Durability barrier; materializes the artifact when nothing has been
    * appended yet, so an explicitly flushed empty session survives this process.
+   * Drains the routed live buffer first: the seam promises that every
+   * acknowledged append is durable on resolution, and live-routed events are
+   * acknowledged the moment the session publishes them — the same
+   * drain-then-flush order `flushAll` and the `session/flush` effect use.
    * @param options - optional cancellation observed before the barrier starts.
    */
   flush(options?: SessionHandleFlushOptions): Promise<void> {
-    return this.run('flush', async () => {
-      options?.signal?.throwIfAborted()
-      if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'flush')
-      if (this.state.materialized) return // appends are durable on resolution
-      await this.storage.persistHeader(this.header, this.state.inheritedEventCount)
-      this.state.materialized = true
-    })
+    return (async () => {
+      await this.drainLive()
+      return this.run('flush', async () => {
+        options?.signal?.throwIfAborted()
+        if (this.access !== 'write') throw new SessionReadOnlyError(this.id, 'flush')
+        if (this.state.materialized) return // appends are durable on resolution
+        await this.storage.persistHeader(this.header, this.state.inheritedEventCount)
+        this.state.materialized = true
+      })
+    })()
   }
 
   /**
@@ -180,6 +190,10 @@ export class JsonlSessionHandle implements SessionHandle {
    */
   close(): Promise<void> {
     return this.closing ??= (async () => {
+      // Ticket the chain first: turns queued before this line proceed even if
+      // their microtask runs later; later turns refuse at entry. Outcome now
+      // depends only on call order, never on scheduling.
+      this.closeTicket = this.opTicket
       let drainFailure: unknown
       // Producers on other fibers may still publish while close waits for
       // in-flight mutations (root disposal is concurrent), so drain again
@@ -294,11 +308,20 @@ export class JsonlSessionHandle implements SessionHandle {
     return next
   }
 
-  /** Serialize one public mutating operation onto this handle's chain. */
+  /**
+   * Serialize one public mutating operation onto this handle's chain. Turns
+   * queued before `close()` started proceed deterministically regardless of
+   * microtask scheduling; turns queued after refuse at entry. The ticket
+   * makes append-then-close without an await land the batch instead of
+   * depending on whether the queued turn ran first.
+   */
   private async run(operation: string, op: () => Promise<void>): Promise<void> {
     this.assertOpen(operation)
+    const ticket = (this.opTicket += 1)
     return this.enqueueChain(async () => {
-      this.assertOpen(operation)
+      if (this.closeTicket !== undefined && ticket > this.closeTicket) {
+        throw new SessionHandleClosedError(this.id, operation)
+      }
       return op()
     })
   }

@@ -728,6 +728,14 @@ class JsonlSessionPersistence extends SessionPersistence {
     try {
       await link(tmp, finalPath)
       linked = true
+    } catch (error) {
+      // Cross-process create race: the peer published first. Map to the
+      // contract error so resume-or-create callers classify correctly
+      // instead of seeing a raw filesystem collision.
+      if ((error as NodeJS.ErrnoException | null)?.code === 'EEXIST') {
+        throw new SessionAlreadyExistsError(id)
+      }
+      throw error
     } finally {
       // Remove an unpublished temp on failure. After publication, defer cleanup
       // until the directory entry is durable so cleanup cannot reject a live log.
@@ -766,6 +774,11 @@ class JsonlSessionPersistence extends SessionPersistence {
       await publishNewFileWin32(tmp, finalPath)
     } catch (error) {
       await rm(tmp, { force: true })
+      // Same collision contract as the POSIX link path (mapped Win32
+      // ERROR_FILE_EXISTS/ERROR_ALREADY_EXISTS surface as EEXIST).
+      if ((error as NodeJS.ErrnoException | null)?.code === 'EEXIST') {
+        throw new SessionAlreadyExistsError(id)
+      }
       throw error
     }
   }

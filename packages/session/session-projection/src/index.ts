@@ -685,7 +685,11 @@ export class SessionProjectionRegistry extends Service {
       try {
         next = registration.def.apply(previousState, event)
       } catch (e) {
-        registration.cells.delete(session)
+        // Retain the folded prefix like advanceCell does: the pre-advance
+        // above already folded everything before this event, so the next
+        // drive resumes after it instead of refolding the whole log only
+        // to throw again. The poison event still throws loudly every time.
+        cell.observedSeq = event.seq === 0 ? -1 : SessionSeq(event.seq - 1)
         throw e
       }
       const changed = !Object.is(next, previousState)

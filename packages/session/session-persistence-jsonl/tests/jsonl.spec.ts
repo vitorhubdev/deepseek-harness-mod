@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 import { SessionLogOffset, SessionSeq, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
 import type { SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
+import { SessionAlreadyExistsError } from '@deepseek-ai/dsh-session-persistence'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import {
   encodeSegment, eventLines, logPath, projectDir, projectKey, scanLog, sessionDir, SessionLogScanner, toHeaderLine,
@@ -34,6 +35,11 @@ const readTally = vi.hoisted(() => ({
   enabled: false,
 }))
 
+const linkRace = vi.hoisted(() => ({
+  /** Next link() failure code to inject (one shot); undefined means real link. */
+  failWith: undefined as string | undefined,
+}))
+
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
@@ -53,6 +59,14 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       }
       return actual.readFile(...args)
     }) as typeof actual.readFile,
+    link: async (...args: Parameters<typeof actual.link>) => {
+      if (linkRace.failWith !== undefined) {
+        const code = linkRace.failWith
+        linkRace.failWith = undefined
+        throw Object.assign(new Error(`${code}: injected link race failure`), { code })
+      }
+      await actual.link(...args)
+    },
   }
 })
 
@@ -134,6 +148,7 @@ afterEach(async () => {
   readTally.enabled = false
   statFailure.path = undefined
   statFailure.error = undefined
+  linkRace.failWith = undefined
   vi.restoreAllMocks()
   for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true })
 })
@@ -454,6 +469,65 @@ describe('JsonlSessionPersistence: durability and crash semantics', () => {
 
     expect(await readFile(rawLogPath(root, '/work', m.id), 'utf8')).toBe(`${JSON.stringify(toHeaderLine(m))}\n`)
     await expect(readAll(ctx.sessionPersistence, m.id)).resolves.toMatchObject({ events: [] })
+  })
+
+  // POSIX publish path only: directory fsync is not permitted on Windows,
+  // so these race tests run where the POSIX branch is native (Linux/macOS
+  // CI); the Win32 branch carries the same mapping inside its covered region.
+  it.runIf(process.platform !== 'win32')('maps a concurrent-publish link race to SessionAlreadyExistsError', async () => {
+    const m = meta('race-create', '/work')
+    const handle = await ctx.sessionPersistence.create(m)
+    try {
+      // A peer publishes between the absence check and link(): the raw
+      // EEXIST must surface as the contract error, never as a filesystem
+      // collision, and the unpublished temp must not linger.
+      linkRace.failWith = 'EEXIST'
+      await expect(handle.append(oneTurnLog())).rejects.toBeInstanceOf(SessionAlreadyExistsError)
+      const leftovers = await readdir(sessionDir(root, '/work', m.id))
+      expect(leftovers.filter(entry => entry.includes('.tmp'))).toEqual([])
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  })
+
+  it.runIf(process.platform !== 'win32')('passes non-collision publish failures through without relabeling', async () => {
+    const m = meta('race-passthrough', '/work')
+    const handle = await ctx.sessionPersistence.create(m)
+    try {
+      linkRace.failWith = 'EACCES'
+      await expect(handle.append(oneTurnLog())).rejects.toMatchObject({ code: 'EACCES' })
+    } finally {
+      await handle.close().catch(() => {})
+    }
+  })
+
+  it('flush drains the routed live buffer instead of leaving it to the batch timer', async () => {
+    const m = meta('flush-drains-live', '/work')
+    const handle = await ctx.sessionPersistence.create(m) as JsonlSessionHandle
+    try {
+      const [event] = oneTurnLog()
+      // The 200ms batching window is still armed: without a drain the event
+      // would only land after the timer, so durability here proves flush.
+      handle.enqueueLive(event!, () => {})
+      await handle.flush()
+      const { events } = await readAll(ctx.sessionPersistence, m.id)
+      expect(events).toEqual([event!])
+    } finally {
+      await handle.close()
+    }
+  })
+
+  it('honors a queued append issued before close without awaiting between them', async () => {
+    const m = meta('queued-append-close', '/work')
+    const handle = await ctx.sessionPersistence.create(m)
+    // No await between the calls: the append turn is queued when close
+    // tickets the chain, so the batch must land deterministically rather
+    // than depend on whether its microtask ran first.
+    const appended = handle.append(oneTurnLog())
+    const closing = handle.close()
+    await appended
+    await closing
+    await expect(readAll(ctx.sessionPersistence, m.id)).resolves.toMatchObject({ events: oneTurnLog() })
   })
 
   it('close drains a routed event that arrives while it waits for an in-flight append', async () => {

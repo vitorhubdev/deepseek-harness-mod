@@ -605,6 +605,43 @@ describe('SessionProjectionCache cold-read seeding', () => {
     })
   })
 
+  it('coldSnapshot restores from a suffix without replaying the cached prefix', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
+    roots.push(root)
+    const ctx = new Context()
+    contexts.push(ctx)
+    await ctx.plugin(Storage)
+    await ctx.plugin({ name: storageJsonName, inject: storageJsonInject, apply: storageJsonApply, Config: storageJsonConfig }, { root })
+    await ctx.plugin({ name: storageDomainName, inject: storageDomainInject, apply: storageDomainApply, Config: storageDomainConfig }, { backend: 'json' })
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SessionProjectionCache, { writeEveryEvents: 100, writeIntervalMs: 60_000 })
+    const cache = ctx.sessionProjectionCache
+    const apply = vi.fn((_state: number, _event: SessionEvent) => 1)
+    ctx.sessionProjections.register({
+      key: 'cache-test/count',
+      stateSchema: z.number().int().nonnegative(),
+      init: () => 0,
+      apply,
+      stateVersion: 1,
+    } satisfies ProjectionDefinition<'cache-test/count', number>)
+    const meta = headerOf(SessionId('cold-tail'), 11)
+    const events = Array.from({ length: 5 }, (_, seq) => ({
+      type: 'cache-test/mark', seq: SessionSeq(seq), time: seq, data: { marks: [`m${seq}`] },
+    })) as SessionEvent[]
+    cache.coldSnapshot(meta, SessionLogOffset(0), events)
+    expect(apply).toHaveBeenCalledTimes(5)
+    // Wait for the write-back: the suffix restore below seeds from this row.
+    await vi.waitFor(async () => {
+      expect((await storedRows(root, meta.id))?.['cache-test/count']?.seq).toBe(4)
+    })
+    const calls = apply.mock.calls.length
+    // Floor one below the watermark (seq 4): only the last event travels.
+    const tail = cache.coldSnapshot(meta, SessionLogOffset(0), events.slice(4), SessionLogOffset(4))
+    expect(tail.asOfSeq).toBe(4)
+    expect(apply.mock.calls.length).toBe(calls)
+  })
+
   it('coldSnapshot write-back is fail-soft: a failed durable write logs and never throws', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsh-projcache-'))
     roots.push(root)

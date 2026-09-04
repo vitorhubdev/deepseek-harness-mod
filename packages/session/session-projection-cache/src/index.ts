@@ -221,28 +221,32 @@ export class SessionProjectionCache extends Service {
   }
 
   /**
-   * Cold-read one session's projections from its complete log. Each unit is
+   * Cold-read one session's projections from a stored log suffix. Each unit is
    * seeded from the identity-checked cached rows — the registry skips `apply`
    * for the already-folded prefix (events at or below the row's `seq`) — and
    * the refreshed checkpoint is written back (fail-soft, fire-and-forget), so
    * the first cold read creates the cache row and later ones seed from it.
-   * The caller supplies the complete log in seq order: this service never
-   * consults the persistence layer.
+   * Pass the events at or past `restoreFloor` of the cached rows with that
+   * same floor as `baseSeq` (a `SessionHandle.read` slice) to skip loading the
+   * prefix at all; the default `0` keeps the full-log behavior. The caller
+   * supplies the events: this service never consults the persistence layer.
    * @param meta - the stored session header (identity witness).
    * @param inheritedEventCount - exact inherited prefix length for projection initialization and identity.
-   * @param events - the session's complete log, in seq order.
-   * @returns the projection cut at the log end.
+   * @param events - the stored events with `seq >= baseSeq`, in seq order.
+   * @param baseSeq - the seq `events` starts at (its first event's seq when non-empty).
+   * @returns the projection cut at the supplied log end.
    */
   coldSnapshot(
     meta: SessionHeader,
     inheritedEventCount: SessionLogOffset,
     events: readonly SessionEvent[],
+    baseSeq: SessionLogOffset = SessionLogOffset(0),
   ): ProjectionSnapshot {
     const identity = identityOf(meta, inheritedEventCount)
     const restored = this.ctx.sessionProjections.restore(
       this.recordFor(meta.id, identity)?.rows ?? {},
       events,
-      SessionLogOffset(0),
+      baseSeq,
       meta,
       inheritedEventCount,
     )

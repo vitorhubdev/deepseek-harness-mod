@@ -64,7 +64,7 @@ const { asOfSeq, values } = ctx.sessionProjections.snapshot(session)
 
 ### 持久检查点
 
-每个单元的状态都会被检查点化——client-visible 与 host-only 一视同仁——通过 `checkpoint(session)`，同级包 [session-projection-cache](../session-projection-cache/README.zh.md) 持久化这些检查点，使冷读跳过全量日志加载。检查点水位使用 `SessionSeqCursor`（空日志为 `-1`），回放起点使用 `SessionLogOffset`；`restoreFloor` 与 `restore` 在无活动会话的情况下实现读取配方，且不会混淆已有事件与日志间隙。
+每个单元的状态都会被检查点化——client-visible 与 host-only 一视同仁——通过 `checkpoint(session)`，同级包 [session-projection-cache](../session-projection-cache/README.zh.md) 持久化这些检查点，使冷读跳过已检查点化前缀的重折叠。live resume 仍需加载完整日志来播种会话；只需后缀的读取方组合使用 `restoreFloor` 与 `restore`（或带 floor `baseSeq` 的 `coldSnapshot`）。检查点水位使用 `SessionSeqCursor`（空日志为 `-1`），回放起点使用 `SessionLogOffset`；`restoreFloor` 与 `restore` 在无活动会话的情况下实现读取配方，且不会混淆已有事件与日志间隙。
 
 -----
 
