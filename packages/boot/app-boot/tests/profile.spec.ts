@@ -117,6 +117,31 @@ describe('manifest round-trip', () => {
     expect(() => readProfileManifest('t', dir)).toThrow('must hold a JSON object')
     expect(() => readProfileManifest('t', join(dir, 'nope'))).toThrow('failed to read profile manifest')
   })
+
+  it('labels corrupt manifests instead of leaking a bare SyntaxError', () => {
+    const dir = tmp()
+    writeFileSync(join(dir, 'package.json'), '{oops')
+    expect(() => readProfileManifest('t', dir)).toThrow('failed to parse profile manifest')
+
+    const anchor = stageInstallation({ 'bad-bundle': { patch: '[]\n' } })
+    const bundleDir = join(anchor, '..', 'node_modules', 'bad-bundle')
+    writeFileSync(join(bundleDir, 'package.json'), '{oops')
+    const home = tmp()
+    const profileDir = resolveProfileDir('demo', home)
+    initProfile(profileDir, ['bad-bundle'])
+    expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('failed to parse bundle manifest')
+  })
+
+  it('treats a missing user layer as empty but still fails loud on a broken one', () => {
+    const anchor = stageInstallation({})
+    const home = tmp()
+    const dir = resolveProfileDir('demo', home)
+    initProfile(dir, [])
+    rmSync(join(dir, PROFILE_PATCH_FILENAME))
+    expect(loadProfile('t', 'demo', anchor, home).patches).toEqual([])
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), 'not: [valid')
+    expect(() => loadProfile('t', 'demo', anchor, home)).toThrow('failed to parse patches')
+  })
 })
 
 describe('resolveBundleDir', () => {

@@ -11,9 +11,9 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { writeFileAtomicSync } from '@deepseek-ai/dsh-atomic-write'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
 import type { PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
@@ -118,7 +118,9 @@ export function resolveTelemetryPatch(disabledEnv: string | undefined, hasRow: b
  */
 export function prepareProfile(name: string, userLayer = true): Profile {
   const profile = loadProfile(NAME, name, INSTALL_ANCHOR, undefined, { userLayer })
-  writeFileSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG)
+  // Constant content, but still atomic: a torn root fails loader parsing and
+  // bricks the boot exactly like a torn manifest.
+  writeFileAtomicSync(join(profile.dir, PROFILE_ROOT_FILENAME), PROFILE_ROOT_CONFIG, { mode: 0o644 })
   return profile
 }
 

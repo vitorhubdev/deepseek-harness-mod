@@ -26,16 +26,16 @@
 import { createRequire } from 'node:module'
 import {
   existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync,
-  symlinkSync, unlinkSync, writeFileSync,
+  symlinkSync, unlinkSync,
 } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { withFileLock } from '@deepseek-ai/dsh-atomic-write'
+import { withFileLock, writeFileAtomicSync } from '@deepseek-ai/dsh-atomic-write'
 import type { EntryOptions } from '@deepseek-ai/cordis-plugin-loader'
 import { applyEntryPatches, type PatchOptions } from '@deepseek-ai/cordis-plugin-include'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { resolve as resolvePackage, type Package as ResolvePackageManifest } from 'resolve.exports'
-import { loadOverlayPatches } from './index.ts'
+import { loadOptionalPatches, loadOverlayPatches } from './index.ts'
 
 /** Directory under the Harness home holding every profile. */
 export const PROFILES_DIR = 'profiles'
@@ -208,12 +208,15 @@ export function initProfile(
       dependencies: {},
       dsh: { profile: { bundles: [...bundles], patchReload } },
     }
-    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
+    // Atomic replacement (not plain writeFileSync): a kill mid-write must
+    // leave the previous complete manifest, never a torn JSON. Concurrent
+    // boots write identical content here, so no writer lock is needed.
+    writeFileAtomicSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n', { mode: 0o644 })
   }
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
-  if (!existsSync(patchPath)) writeFileSync(patchPath, PROFILE_PATCH_TEMPLATE)
+  if (!existsSync(patchPath)) writeFileAtomicSync(patchPath, PROFILE_PATCH_TEMPLATE, { mode: 0o644 })
   const workspacePath = join(dir, 'pnpm-workspace.yaml')
-  if (!existsSync(workspacePath)) writeFileSync(workspacePath, PROFILE_PNPM_WORKSPACE)
+  if (!existsSync(workspacePath)) writeFileAtomicSync(workspacePath, PROFILE_PNPM_WORKSPACE, { mode: 0o644 })
 }
 
 function readModuleProxyRecord(link: string): ModuleProxyRecord | undefined {
@@ -383,7 +386,11 @@ function packageProxySource(
   packageName: string,
   packageDir: string,
 ): { version: string; targets: Record<string, string> } {
-  const manifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as {
+  // Parsed through the shared labeled reader: traversal validated these
+  // manifests moments earlier, and any concurrent external rewrite still
+  // fails with file context instead of a bare SyntaxError.
+  const manifestPath = join(packageDir, 'package.json')
+  const manifest = readModuleFallbackManifest(manifestPath) as {
     bin?: unknown
     exports?: unknown
     main?: unknown
@@ -472,12 +479,16 @@ function ensureModuleProxy(
     rmSync(link, { recursive: true })
   }
   mkdirSync(link, { recursive: true })
-  writeFileSync(join(link, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n')
+  // Same atomicity contract as initProfile: the proxy manifest must never be
+  // observed torn. The equality guard above makes concurrent runs write
+  // identical content, so no writer lock is needed.
+  writeFileAtomicSync(join(link, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n', { mode: 0o644 })
   for (const [index, target] of Object.values(targets).entries()) {
     const specifier = JSON.stringify(target)
-    writeFileSync(
+    writeFileAtomicSync(
       join(link, `entry-${index}.js`),
       `export * from ${specifier}\nimport * as target from ${specifier}\nexport default target.default\n`,
+      { mode: 0o644 },
     )
   }
 }
@@ -488,7 +499,11 @@ type ModuleFallbackEntry =
 
 /** Read one package manifest used while traversing a module-fallback dependency graph. */
 function readModuleFallbackManifest(anchor: string): ProfileManifest {
-  return JSON.parse(readFileSync(anchor, 'utf8')) as ProfileManifest
+  try {
+    return JSON.parse(readFileSync(anchor, 'utf8')) as ProfileManifest
+  } catch (error) {
+    throw new Error(`dsh: failed to parse module-fallback manifest at ${anchor}: ${String(error)}`)
+  }
 }
 
 /** Return dependency names that may be imported by a loader-visible plugin. */
@@ -694,7 +709,12 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
     throw new Error(`${binName}: failed to read profile manifest ${path}: ${String(error)}`)
   }
   // The field checks below validate the file data before trusting the parse type.
-  const parsed = JSON.parse(raw) as ProfileManifest | null
+  let parsed: ProfileManifest | null
+  try {
+    parsed = JSON.parse(raw) as ProfileManifest | null
+  } catch (error) {
+    throw new Error(`${binName}: failed to parse profile manifest ${path}: ${String(error)}`)
+  }
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`${binName}: profile manifest ${path} must hold a JSON object`)
   }
@@ -707,7 +727,10 @@ export function readProfileManifest(binName: string, dir: string): ProfileManife
  * @param manifest - the manifest value to persist.
  */
 export function writeProfileManifest(dir: string, manifest: ProfileManifest): void {
-  writeFileSync(join(dir, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n')
+  // Atomic for the same reason as initProfile: normalizeShippedProfile writes
+  // this back during load, and a torn manifest bricks the next boot.
+  // Normalization is idempotent, so concurrent boots agree on the content.
+  writeFileAtomicSync(join(dir, 'package.json'), JSON.stringify(manifest, undefined, 2) + '\n', { mode: 0o644 })
 }
 
 /** Return whether two bundle lists have the same values in the same order. */
@@ -840,7 +863,13 @@ export function loadProfile(
   const patchReload = rawPatchReload ?? DEFAULT_PROFILE_PATCH_RELOAD
   const layers = bundles.map((packageName): ProfileLayer => {
     const packageDir = resolveBundleDir(binName, packageName, installAnchor, dir)
-    const bundleManifest = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8')) as ProfileManifest
+    const bundleManifestPath = join(packageDir, 'package.json')
+    let bundleManifest: ProfileManifest
+    try {
+      bundleManifest = JSON.parse(readFileSync(bundleManifestPath, 'utf8')) as ProfileManifest
+    } catch (error) {
+      throw new Error(`${binName}: failed to parse bundle manifest for ${JSON.stringify(packageName)} at ${bundleManifestPath}: ${String(error)}`)
+    }
     const declared = bundleManifest.dsh?.bundle?.patch
     if (declared === undefined) {
       throw new Error(`${binName}: profile bundle ${JSON.stringify(packageName)} declares no dsh.bundle in its package.json`)
@@ -849,8 +878,12 @@ export function loadProfile(
     return { packageName, packageDir, patchPath, patches: loadOverlayPatches(binName, patchPath) }
   })
   const patchPath = join(dir, PROFILE_PATCH_FILENAME)
-  const patches = options.userLayer !== false && existsSync(patchPath)
-    ? loadOverlayPatches(binName, patchPath)
+  // The user layer is optional by steady-state policy (live reload treats an
+  // absent file as an empty layer), so boot must not fatal on a file that
+  // vanishes between the presence check and the read. Named --patch overlays
+  // keep the fail-loud loader: the caller named that file.
+  const patches = options.userLayer !== false
+    ? loadOptionalPatches(binName, patchPath) ?? []
     : []
   return { name, dir, layers, patchPath, patches, patchReload }
 }

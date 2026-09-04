@@ -38,6 +38,14 @@ await writeFileAtomic('/home/u/.dsh/settings.yaml', text, { mode: 0o600 })
 
 Parent directories are created as needed, and readers observe either the old or the new complete content. On Windows, transient replacement interference reported as `EACCES`, `EBUSY`, or `EPERM` is retried for a bounded interval; any remaining failure removes the temporary file and leaves the target untouched.
 
+Boot-time and other synchronous callers that cannot go async use `writeFileAtomicSync` with the same commit protocol (exclusive-create temp sibling plus atomic rename) and the same Windows retry policy, implemented with bounded blocking sleeps:
+
+```ts
+import { writeFileAtomicSync } from '@deepseek-ai/dsh-atomic-write'
+
+writeFileAtomicSync('/home/u/.dsh/profiles/web/package.json', text, { mode: 0o644 })
+```
+
 ### Coordinating writers
 
 For a read-render-commit cycle that a bare atomic commit cannot make safe on its own, hold the writer lock around the operation:
@@ -74,7 +82,7 @@ The package is built on one separation: the atomic commit owns the swap, and the
 
 | File | Role |
 |---|---|
-| [`src/index.ts`](src/index.ts) | `writeFileAtomic` and `withFileLock`, the package's whole surface |
+| [`src/index.ts`](src/index.ts) | `writeFileAtomic`, `writeFileAtomicSync`, and `withFileLock`, the package's whole surface |
 | — | No runtime invariant companion is published; this pure filesystem primitive owns no event stream or mutable runtime data; its replacement contract is enforced by unit tests. |
 
 ### Write path

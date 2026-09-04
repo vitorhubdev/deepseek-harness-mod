@@ -1,13 +1,16 @@
 import { lstat, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { readFileSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { withFileLock, writeFileAtomic } from '../src/index.ts'
+import { withFileLock, writeFileAtomic, writeFileAtomicSync } from '../src/index.ts'
 
 const state = vi.hoisted(() => ({
   failLockCreateWithEPERM: false,
   renameAttempts: 0,
   renameFailures: [] as string[],
+  syncRenameAttempts: 0,
+  syncRenameFailures: [] as string[],
 }))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
@@ -33,6 +36,21 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
+vi.mock('node:fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs')>()
+  return {
+    ...actual,
+    renameSync: (...args: Parameters<typeof actual.renameSync>) => {
+      state.syncRenameAttempts += 1
+      const code = state.syncRenameFailures.shift()
+      if (code !== undefined) {
+        throw Object.assign(new Error(`${code}: injected sync rename failure`), { code })
+      }
+      actual.renameSync(...args)
+    },
+  }
+})
+
 const scratchDirs: string[] = []
 
 afterEach(async () => {
@@ -41,6 +59,8 @@ afterEach(async () => {
   state.failLockCreateWithEPERM = false
   state.renameAttempts = 0
   state.renameFailures.length = 0
+  state.syncRenameAttempts = 0
+  state.syncRenameFailures.length = 0
   await Promise.all(scratchDirs.splice(0).map(dir => rm(dir, {
     force: true,
     maxRetries: 10,
@@ -155,6 +175,78 @@ describe('writeFileAtomic', () => {
 
     await expect(writeFileAtomic(target, 'new', { mode: 0o600 })).rejects.toMatchObject({ code: 'EPERM' })
     expect(state.renameAttempts).toBe(1)
+  })
+})
+
+describe('writeFileAtomicSync', () => {
+  it('creates the file and its parents with exactly the stated mode', async () => {
+    const dir = await scratch()
+    const target = join(dir, 'nested', 'deep', 'doc.yaml')
+    writeFileAtomicSync(target, 'a: 1\n', { dirMode: 0o700, mode: 0o600 })
+    expect(readFileSync(target, 'utf8')).toBe('a: 1\n')
+    if (process.platform !== 'win32') {
+      expect(statSync(dirname(target)).mode & 0o777).toBe(0o700)
+      expect(statSync(target).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  it('replaces existing content and narrows a wider-permission file to the stated mode', async () => {
+    const dir = await scratch()
+    const target = join(dir, 'doc.yaml')
+    await writeFile(target, 'old', { mode: 0o644 })
+    writeFileAtomicSync(target, 'new', { mode: 0o600 })
+    expect(readFileSync(target, 'utf8')).toBe('new')
+    if (process.platform !== 'win32') expect(statSync(target).mode & 0o777).toBe(0o600)
+  })
+
+  it('replaces a symlinked target itself without writing through to the referent', async () => {
+    const dir = await scratch()
+    const victim = join(dir, 'victim')
+    await writeFile(victim, 'victim-content')
+    const target = join(dir, 'doc.yaml')
+    await symlink(victim, target)
+    writeFileAtomicSync(target, 'replaced', { mode: 0o600 })
+    expect((await lstat(target)).isSymbolicLink()).toBe(false)
+    expect(readFileSync(target, 'utf8')).toBe('replaced')
+    expect(readFileSync(victim, 'utf8')).toBe('victim-content')
+  })
+
+  it('retries transient Windows rename interference and commits the replacement', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    state.syncRenameFailures.push('EACCES', 'EBUSY')
+
+    writeFileAtomicSync(target, 'new', { mode: 0o600 })
+
+    expect(state.syncRenameAttempts).toBe(3)
+    expect(readFileSync(target, 'utf8')).toBe('new')
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('leaves no temp sibling and keeps the old content after bounded retries expire', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    await writeFile(target, 'old')
+    state.syncRenameFailures.push(...Array.from({ length: 9 }, () => 'EPERM'))
+
+    expect(() => { writeFileAtomicSync(target, 'new', { mode: 0o600 }) }).toThrow(/EPERM/)
+    expect(state.syncRenameAttempts).toBe(9)
+    expect(readFileSync(target, 'utf8')).toBe('old')
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
+  })
+
+  it('does not retry a rename failure without a transient code or outside Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('linux')
+    const dir = await scratch()
+    const target = join(dir, 'document')
+    state.syncRenameFailures.push('EPERM')
+
+    expect(() => { writeFileAtomicSync(target, 'new', { mode: 0o600 }) }).toThrow(/EPERM/)
+    expect(state.syncRenameAttempts).toBe(1)
+    expect((await readdir(dir)).filter(entry => entry.includes('.tmp'))).toEqual([])
   })
 })
 

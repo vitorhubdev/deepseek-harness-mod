@@ -12,6 +12,7 @@
 
 import { randomBytes } from 'node:crypto'
 import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 
 const WINDOWS_TRANSIENT_RENAME_ERRORS: ReadonlySet<string> = new Set(['EACCES', 'EBUSY', 'EPERM'])
@@ -136,6 +137,50 @@ export interface FileLockOptions {
    * contender that acquires the lock afterwards re-reads the committed state.
    */
   waitMs?: number
+}
+
+/**
+ * Synchronous {@link writeFileAtomic} for callers that cannot go async
+ * (boot-time profile manifests, CLI startup paths). Same commit protocol —
+ * exclusive-create temp sibling plus atomic rename — so readers still observe
+ * either the old or the new complete content. Windows transient-retry policy
+ * mirrors the async version, implemented with bounded `Atomics.wait` sleeps
+ * because a sync caller cannot yield; the total stall stays under ~400ms and
+ * only triggers on transient interference, never on the happy path.
+ * @param filename - final path receiving the content.
+ * @param content - complete next file content.
+ * @param options - permission bits for the replacement inode.
+ */
+export function writeFileAtomicSync(filename: string, content: string, options: WriteFileAtomicOptions): void {
+  mkdirSync(dirname(filename), {
+    recursive: true,
+    ...options.dirMode === undefined ? {} : { mode: options.dirMode },
+  })
+  const temp = `${filename}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    writeFileSync(temp, content, { mode: options.mode, flag: 'wx' })
+    renameSyncAtomicTemp(temp, filename)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    throw error
+  }
+}
+
+/** Replace the target, retrying transient Windows interference with bounded blocking sleeps. */
+function renameSyncAtomicTemp(temp: string, filename: string): void {
+  let delay = WINDOWS_RENAME_RETRY_INITIAL_MS
+  const wait = new Int32Array(new SharedArrayBuffer(4))
+  for (let retries = 0;; retries += 1) {
+    try {
+      renameSync(temp, filename)
+      return
+    } catch (error) {
+      if (!isTransientWindowsRenameError(error)) throw error
+      if (retries >= WINDOWS_RENAME_RETRY_LIMIT) throw error
+    }
+    Atomics.wait(wait, 0, 0, delay)
+    delay = Math.min(delay * 2, WINDOWS_RENAME_RETRY_MAX_MS)
+  }
 }
 
 /**
