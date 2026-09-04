@@ -261,7 +261,16 @@ function appendLog(line, level='info'){
   const entry = { ts, level, line };
   logBuffer.push(entry);
   if(logBuffer.length>800) logBuffer.shift();
-  renderLog();
+  // Append incremental: rebuild total de até 400 divs a cada linha travava o
+  // renderer durante o boot. O rebuild completo fica só na troca de filtro.
+  if(logLevelFilter!=='all' && level!==logLevelFilter) return;
+  if(logTail.querySelector('.log-line')===null) logTail.innerHTML = '';
+  const div = document.createElement('div');
+  div.className = 'log-line ' + level;
+  div.textContent = `[${ts}] [${level}] ${line}`;
+  logTail.appendChild(div);
+  while(logTail.children.length>400) logTail.removeChild(logTail.firstChild);
+  logTail.scrollTop = logTail.scrollHeight;
 }
 
 function renderLog(){
@@ -291,7 +300,7 @@ async function copyText(t){
 function buildGitHubBody(debug){
   const tail = logBuffer.slice(-200).map(e=>`[${e.ts}] [${e.level}] ${e.line}`).join('\n');
   const ws = `OS: ${debug.platform}/${debug.arch} | Electron ${debug.electron} | v${debug.version}\nresourceRoot=${debug.resourceRoot}\ninstallAnchor=${debug.installAnchor}\ndshHome=${debug.dshHome}\nlogFile=${debug.logFile}`;
-  return `# DeepMod / RASNER — boot report (GitHub)\n\n## System\n\`\`\`\n${ws}\n\`\`\`\n\n## Live log (last 200)\n\`\`\`\n${tail}\n\`\`\`\n\n## Error (if any)\n\`\`\`\n${document.getElementById('errorBox').textContent || '(none)'}\n\`\`\`\n\n## Steps to reproduce\n1. Double-click \\`DeepMod 1.0.3.exe\\`\n2. Observe splash at ${document.getElementById('percent').textContent}\n3. Attach this log + screenshot\n`;
+  return `# DeepMod / RASNER — boot report (GitHub)\n\n## System\n\`\`\`\n${ws}\n\`\`\`\n\n## Live log (last 200)\n\`\`\`\n${tail}\n\`\`\`\n\n## Error (if any)\n\`\`\`\n${document.getElementById('errorBox').textContent || '(none)'}\n\`\`\`\n\n## Steps to reproduce\n1. Double-click \`DeepMod 1.0.3.exe\`\n2. Observe splash at ${document.getElementById('percent').textContent}\n3. Attach this log + screenshot\n`;
 }
 
 function buildLLMPrompt(debug){

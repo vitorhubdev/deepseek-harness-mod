@@ -5,7 +5,7 @@
  * @module onebinary/electron/main
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import {
@@ -30,6 +30,10 @@ app.commandLine.appendSwitch('disable-renderer-backgrounding')
 // Single instance + external DSH_HOME (must be before loadLayeredEnv)
 // ---------------------------------------------------------------------------
 if (!app.requestSingleInstanceLock()) app.quit()
+
+// Auto-relato de startup: discrimina inicializações concorrentes (segunda
+// instância, relaunch, double-launch) que dividem os mesmos arquivos de log.
+const STARTUP_SELF_REPORT = `pid=${process.pid} execPath=${process.execPath} argv=${JSON.stringify(process.argv.slice(1))}`
 
 // resourceRoot is safe early — it reads process.resourcesPath (set before main runs)
 const resourceRoot = getResourceRoot()
@@ -80,6 +84,18 @@ function initPathsAndEnv(): void {
     TMP_LOG = ''
     TMP_ERR = ''
   }
+  // Retenção: um arquivo/dia acumula para sempre; mantém 14 dias. Readdir +
+  // unlink de poucos arquivos — custo irrelevante no boot.
+  try {
+    const cutoff = Date.now() - 14 * 24 * 60 * 60 * 1000
+    for (const name of readdirSync(LOG_DIR)) {
+      if (!/^onebinary-\d{4}-\d{2}-\d{2}\.log$/.test(name)) continue
+      const full = join(LOG_DIR, name)
+      try {
+        if (statSync(full).mtimeMs < cutoff) unlinkSync(full)
+      } catch {}
+    }
+  } catch {}
 }
 
 function ts(): string {
@@ -198,7 +214,11 @@ function emitError(phase: string, error: unknown): void {
 // ---------------------------------------------------------------------------
 // IPC for splash
 // ---------------------------------------------------------------------------
-ipcMain.handle('onebinary:debugInfo', () => ({
+// Bridge-proof: o splash chama getDebugInfo em todo load; a linha no log
+// prova que o JS do splash executou (não só que o HTML carregou).
+ipcMain.handle('onebinary:debugInfo', () => {
+  writeLog('splash bridge ok — getDebugInfo atendido')
+  return {
   version: app.getVersion(),
   electron: process.versions.electron,
   node: process.versions.node,
@@ -211,7 +231,8 @@ ipcMain.handle('onebinary:debugInfo', () => ({
   logFile: LOG_FILE,
   tmpDir: (() => { try { return app.getPath('temp') } catch { return '' } })(),
   locale: (() => { try { return app.getLocale() } catch { return '' } })(),
-}))
+  }
+})
 
 ipcMain.handle('onebinary:getLocaleInfo', () => ({
   osLocale: (() => { try { return app.getLocale() } catch { return 'en-US' } })(),
@@ -311,6 +332,15 @@ async function createWindow(): Promise<void> {
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
+  })
+
+  // Observabilidade do renderer: erro de JS no splash cairia no vazio
+  // (splash quebrado = janela estática sem sinal). Erros/warnings do console
+  // do renderer vão para o log principal.
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    if (level === 'error' || level === 'warning') {
+      writeLog(`renderer[${level === 'error' ? 'error' : 'warn'}] ${sourceId}:${String(line)} ${(message ?? '').slice(0, 500)}`)
+    }
   })
 
   // Right-click → Inspect
@@ -638,7 +668,7 @@ async function setupAutoUpdate(): Promise<void> {
 
 app.whenReady().then(async () => {
   initPathsAndEnv()
-  writeLog(`DeepMod ${app.getVersion()} iniciado — Electron ${process.versions.electron} Node ${process.versions.node} — isPackaged=${app.isPackaged} resourcesPath=${(process as unknown as { resourcesPath?: string }).resourcesPath ?? 'n/a'}`)
+  writeLog(`DeepMod ${app.getVersion()} iniciado — Electron ${process.versions.electron} Node ${process.versions.node} — isPackaged=${app.isPackaged} resourcesPath=${(process as unknown as { resourcesPath?: string }).resourcesPath ?? 'n/a'} — ${STARTUP_SELF_REPORT}`)
   await createWindow()
   void setupAutoUpdate()
   // initial progress so bar não fica parada
