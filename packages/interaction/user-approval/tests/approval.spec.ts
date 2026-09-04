@@ -379,6 +379,23 @@ describe('approval policy (the approval/policy fold)', () => {
     expect(session.snapshotEvents().at(-1)).toMatchObject({ type: 'approval/policy', data: { policy: 'ask' } })
   })
 
+  it('shares one policy fold across repeated reads without new appends', () => {
+    const service = new ApprovalService(new Context(), {})
+    const { session } = sessionAgent('sess-memo')
+    setApprovalPolicy(session, 'ask')
+    const reads = vi.spyOn(session, 'eventAt')
+    // First touch scans; the repeat reuses the memo without touching the log.
+    expect(service.overrideOf(session)).toBe('ask')
+    expect(reads.mock.calls.length).toBeGreaterThan(0)
+    reads.mockClear()
+    expect(service.overrideOf(session)).toBe('ask')
+    expect(reads).not.toHaveBeenCalled()
+    // Any append invalidates: the next read folds again and sees the switch.
+    setApprovalPolicy(session, 'never')
+    expect(service.overrideOf(session)).toBe('never')
+    expect(reads.mock.calls.length).toBeGreaterThan(0)
+  })
+
   it('rejects a policy outside the closed vocabulary before appending', () => {
     const append = vi.fn()
     const session = { append } as unknown as Session

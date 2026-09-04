@@ -84,6 +84,25 @@ function hasOpenTurn(session: Session): boolean {
 }
 
 /**
+ * Memoized last-`approval/policy` fold. Keyed by live Session object and
+ * guarded by its `seq` (always the log length, so any append invalidates):
+ * repeated reads within one step — every model-step prompt assembly, every
+ * ask — share one scan instead of walking the whole log per read. The
+ * open-turn check stays a direct scan: it stops at the nearest turn
+ * boundary, so memoizing it would only add bookkeeping. A re-created
+ * Session object (resume, tests) simply misses and refolds.
+ */
+const policyMemo = new WeakMap<Session, { seq: number; value: ApprovalPolicy | undefined }>()
+
+function foldPolicy(session: Session): ApprovalPolicy | undefined {
+  for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
+    const event = session.eventAt(SessionSeq(seq))
+    if (event?.type === 'approval/policy') return event.data.policy
+  }
+  return undefined
+}
+
+/**
  * Append the sole durable representation of a session policy override. Invalid
  * values throw before the log changes; consumers fold the new value on each read.
  * @param session - the session the override belongs to.
@@ -242,11 +261,11 @@ export class ApprovalService extends Service {
    * @returns the last logged policy, or `undefined` without one.
    */
   overrideOf(session: Session): ApprovalPolicy | undefined {
-    for (let seq = session.seq - 1; seq >= 0; seq -= 1) {
-      const event = session.eventAt(SessionSeq(seq))
-      if (event?.type === 'approval/policy') return event.data.policy
-    }
-    return undefined
+    const hit = policyMemo.get(session)
+    if (hit !== undefined && hit.seq === session.seq) return hit.value
+    const value = foldPolicy(session)
+    policyMemo.set(session, { seq: session.seq, value })
+    return value
   }
 
   /**

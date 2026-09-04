@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-electron-browser-opener-run-as-node.md
+2026-09-04-electron-browser-opener-run-as-node.md: e527c85cb80baec0451a05b687e211054ed90284
+2026-09-04-electron-browser-opener-run-as-node.zh.md: 8cdd1ed7106e66a883b1226d6d316f2e972abbb3

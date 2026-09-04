@@ -10,11 +10,12 @@ import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
-import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ToolRuntime, { defineContentToolFixture } from '@deepseek-ai/dsh-tools'
 import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
-import { MockAdapter, textResponse } from './mock-adapter.ts'
+import { FACTORY_DISPOSE_TIMEOUT_MS } from '../src/constants.ts'
+import { MockAdapter, textResponse, toolCallResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
 afterEach(async () => { for (const d of dirs.splice(0)) await rm(d, { recursive: true, force: true }) })
@@ -65,5 +66,53 @@ describe.each(['backend-first', 'loop-first'] as const)('root shutdown drain (%s
     await reader.close()
     expect(events.at(-1)).toMatchObject({ type: 'turn/end', data: { reason: { kind: 'completed' } } })
     await verify.fiber.dispose()
+  })
+
+  it('factory dispose stops waiting for a tool that never settles', { timeout: 20_000 }, async () => {
+    // A tool that ignores cancellation holds its agent dispose forever;
+    // without a deadline the factory join (and CLI shutdown behind it)
+    // would wedge. The deadline only stops the waiting: dispose must
+    // resolve here while the tool body is still pending.
+    const root = await mkdtemp(join(tmpdir(), 'dsh-shutdown-hung-tool-'))
+    dirs.push(root)
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    await ctx.plugin(AgentRegistry)
+    await ctx.plugin(JsonlSessionPersistence, { root })
+    await ctx.plugin(AgentLoop, { agents: [] })
+    let started = false
+    let finished = false
+    ctx.tools.register(defineContentToolFixture({
+      name: 'hang-forever',
+      description: 'never settles, even when cancelled',
+      parameters: {},
+      async execute() {
+        started = true
+        await new Promise<never>(() => undefined)
+        finished = true
+        return [{ type: 'text', text: 'unreachable' }]
+      },
+    }))
+    ctx.llm.registerAdapter(['mock'], new MockAdapter([
+      toolCallResponse('hung-1', 'hang-forever', {}),
+      textResponse('done'),
+    ]))
+    const handle = await ctx.agents.create({ sessionId: SessionId('shutdown-hung'), agentOptions: { provider: 'mock', model: 'mock' } })
+    handle.agent.followup(createUserMessage({ content: [{ type: 'text', text: 'q' }], source: { kind: 'user' } }))
+    for (let step = 0; step < 1000 && !started; step++) {
+      await new Promise(resolve => setTimeout(resolve, 0))
+    }
+    expect(started).toBe(true)
+
+    const start = Date.now()
+    await ctx.fiber.dispose()
+    // Bounded: resolves at the deadline instead of hanging with the tool.
+    // Generous ceiling — the assertion that matters is resolution itself.
+    expect(Date.now() - start).toBeLessThan(FACTORY_DISPOSE_TIMEOUT_MS + 7_000)
+    expect(finished).toBe(false)
   })
 })

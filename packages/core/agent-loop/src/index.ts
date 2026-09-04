@@ -33,7 +33,7 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { ReactLoopAgent } from './agent.ts'
-import { DEFAULT_MAX_PARALLEL_TOOL_CALLS } from './constants.ts'
+import { DEFAULT_MAX_PARALLEL_TOOL_CALLS, FACTORY_DISPOSE_TIMEOUT_MS } from './constants.ts'
 
 /** Fiber states that cannot own or serve a new lifecycle. */
 const INACTIVE_STATES: ReadonlySet<FiberState> = new Set([
@@ -139,10 +139,47 @@ class FactoryOwnership {
     this.accepting = false
     this.teardown.abort(new Error('agent loop is not active'))
     this.inactive.resolve()
-    await Promise.all([
+    const pending = Promise.all([
       ...[...this.liveAgents].map(dispose => dispose()),
       ...this.startupTasks,
     ])
+    // Bounded teardown: a hung tool holds its agent's dispose forever, so
+    // awaiting the join unconditionally would wedge factory unload (and CLI
+    // shutdown) behind work that already ignored cancellation. The deadline
+    // only stops the waiting — overdue disposers keep running detached, with
+    // their rejections already observed by the join — and a healthy teardown
+    // settles long before it. Disposer errors still propagate when the join
+    // wins the race.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const deadline = new Promise<'timed-out'>((resolve) => {
+      timer = setTimeout(() => { resolve('timed-out') }, FACTORY_DISPOSE_TIMEOUT_MS)
+    })
+    try {
+      await Promise.race([
+        pending.then(
+          (): 'settled' => 'settled',
+          (error: unknown): 'settled' => { throw error },
+        ),
+        deadline,
+      ])
+    } finally {
+      if (timer !== undefined) clearTimeout(timer)
+    }
+  }
+}
+
+/** Await driver quiescence, giving up after the factory dispose deadline. */
+async function boundedQuiescence(quiescence: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    await Promise.race([
+      quiescence,
+      new Promise<'timed-out'>((resolve) => {
+        timer = setTimeout(() => { resolve('timed-out') }, FACTORY_DISPOSE_TIMEOUT_MS)
+      }),
+    ])
+  } finally {
+    if (timer !== undefined) clearTimeout(timer)
   }
 }
 
@@ -587,7 +624,13 @@ export class AgentLoop extends Service implements AgentFactory {
         if (machine === undefined) await machineReady.promise
         if (machine !== undefined) {
           machine.cancel({ kind: 'disposed' })
-          await machine.whenIdle()
+          // Bounded quiescence: a tool that ignores cancellation holds
+          // whenIdle forever, wedging this handle and every owner awaiting
+          // it (including factory teardown). The deadline only stops the
+          // waiting — the driver keeps running detached, and the session
+          // close plus detach below still run so registries never pin a
+          // dead agent.
+          await boundedQuiescence(machine.whenIdle())
           await machine.scope.dispose()
         }
       } catch (error: unknown) {

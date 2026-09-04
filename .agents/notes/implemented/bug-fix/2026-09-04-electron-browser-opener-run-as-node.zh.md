@@ -2,7 +2,7 @@
 
 Status: implemented
 
-English | [中文](2026-09-04-electron-browser-opener-run-as-node.zh.md)
+[English](2026-09-04-electron-browser-opener-run-as-node.md) | 中文
 
 ## Problem
 

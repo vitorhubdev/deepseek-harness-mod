@@ -188,9 +188,24 @@ interface BrowserPromptSource {
 }
 
 /** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
+/**
+ * Maximum concurrently live one-shot subagent runs per runtime. Depth caps
+ * levels (`maxDepth`); this caps breadth: without it a model fanning N
+ * parallel `subagent` calls per step across D levels compounds to N^D live
+ * agents (10-wide × depth 3 ≈ 10³ by default). 32 sits 3× above a full
+ * single step (`maxParallelToolCalls` default 10) with headroom for a few
+ * in-flight steps, far below pathological fan-out. Over-cap starts reject
+ * with `CONCURRENCY_LIMIT_EXCEEDED` so the model adapts; settled runs free
+ * their slot. Continuable children are excluded: each is an explicit
+ * operator/background flow, not model fan-out.
+ */
+export const MAX_LIVE_SUBAGENT_RUNS = 32
+
 export class SubagentRuntime extends TypertRemoteService {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined
+  /** One-shot runs admitted but not yet settled (see MAX_LIVE_SUBAGENT_RUNS). */
+  private liveOneShotRuns = 0
   /**
    * The contained lifecycle-edge publisher. Built here because scoped dispatch
    * keys its carrier by this exact service instance, whose own context filter
@@ -557,13 +572,42 @@ export class SubagentRuntime extends TypertRemoteService {
     this.assertCapabilities(provider, request)
     assertSubagentMaxDepth(request.maxDepth)
     if (request.outputSchema !== undefined) assertObjectJsonSchema(request.outputSchema)
+    // Global live-run budget: depth caps levels, but nothing caps breadth —
+    // a model fanning N parallel calls per step across levels compounds
+    // exponentially (10-wide × depth 3 ≈ 10³ live agents by default). Count
+    // one-shot runs from admission to result settlement and reject over-cap
+    // starts loudly so the model adapts, instead of melting the process.
+    // Continuable children stay outside this budget: each is an explicit
+    // operator/background flow with its own lifecycle management, not model
+    // fan-out (see MAX_LIVE_SUBAGENT_RUNS).
+    if (this.liveOneShotRuns >= MAX_LIVE_SUBAGENT_RUNS) {
+      throw new SubagentError(
+        `subagent run budget exceeded: ${String(MAX_LIVE_SUBAGENT_RUNS)} one-shot runs already live; `
+        + 'wait for settlement or reduce delegation fan-out',
+        'CONCURRENCY_LIMIT_EXCEEDED',
+      )
+    }
+    this.liveOneShotRuns += 1
     const descriptor = snapshotSubagentDescriptor({
       mode: 'one-shot',
       provider: name,
       ...request.label !== undefined ? { label: request.label } : {},
     })
     const resolved: ResolvedSubagentStartRequest = { ...request, descriptor }
-    return observeRun(this.emitLifecycle, name, request.parent, await provider.start(resolved))
+    let run: SubagentRun
+    try {
+      run = await provider.start(resolved)
+    } catch (error) {
+      this.liveOneShotRuns -= 1
+      throw error
+    }
+    // Settle releases the slot exactly once: startup failure took the catch
+    // above, so these handlers are the only other releasers.
+    const release = (): void => {
+      this.liveOneShotRuns -= 1
+    }
+    void run.result.then(release, release)
+    return observeRun(this.emitLifecycle, name, request.parent, run)
   }
 
   /**

@@ -212,6 +212,15 @@ const NO_FACTORY_MESSAGE = 'no agent factory registered (load an agent-loop plug
 const NO_INITIATOR_MESSAGE = 'no initiating agent is active'
 const DISPOSED_INITIATOR_MESSAGE = 'agent initiator scope is disposed'
 
+/**
+ * How long registry unload waits for initiator runs to release. A driver
+ * that ignores cancellation never releases, so unbounded waiting wedges
+ * unload behind dead work; five seconds exceeds any healthy drain (releases
+ * land on promise settlement) while bounding the pathological one. Paired
+ * with the agent-loop factory dispose deadline, which bounds the layer above.
+ */
+const INITIATOR_DRAIN_TIMEOUT_MS = 5_000
+
 /** All mutable lifecycle state for one exact registry entry. */
 interface AgentEntry {
   readonly id: SessionId
@@ -616,14 +625,36 @@ export class AgentRegistry extends Service {
     if (this.initiatorState === 'active') this.initiatorState = 'closing'
   }
 
-  /** Wait for returned-Promise boundaries, then invalidate retained references. */
+  /**
+   * Wait for returned-Promise boundaries, then invalidate retained references.
+   * The drain is bounded by {@link INITIATOR_DRAIN_TIMEOUT_MS}: a driver that
+   * ignores cancellation never releases its run, and awaiting it here would
+   * wedge registry unload (and CLI shutdown) behind dead work. Expiry stops
+   * the waiting with a warning — the run entry leaks, but the registry still
+   * unloads.
+   */
   private disposeInitiators(): Promise<void> {
     return (this.initiatorDisposal ??= (async () => {
       this.closeInitiators()
       this.releaseReentrantInitiatorRuns()
       if (this.activeInitiatorRuns !== 0) {
         this.initiatorDrain ??= Promise.withResolvers<void>()
-        await this.initiatorDrain.promise
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            this.initiatorDrain.promise,
+            new Promise<'timed-out'>((resolve) => {
+              timer = setTimeout(() => { resolve('timed-out') }, INITIATOR_DRAIN_TIMEOUT_MS)
+            }),
+          ])
+        } finally {
+          if (timer !== undefined) clearTimeout(timer)
+        }
+        if (this.activeInitiatorRuns !== 0) {
+          this.ctx.logger.warn(
+            `agents: ${String(this.activeInitiatorRuns)} initiator run(s) still held after ${String(INITIATOR_DRAIN_TIMEOUT_MS)}ms; unloading anyway`,
+          )
+        }
       }
       this.initiatorState = 'disposed'
       this.initiators.disable()

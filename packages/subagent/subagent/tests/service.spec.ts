@@ -7,6 +7,7 @@ import { carrierKeyOf } from '@deepseek-ai/dsh-scope'
 import SubagentRuntime, {
   foldSubagentDescriptor,
   snapshotSubagentDescriptor,
+  MAX_LIVE_SUBAGENT_RUNS,
   SUBAGENT_DESCRIPTOR_VERSION,
   SubagentError,
   assertSubagentMaxDepth,
@@ -250,6 +251,42 @@ describe('SubagentRuntime', () => {
     ctx.on('subagent/end', lifecycle)
     await expect(subagents.start('failed', baseRequest())).rejects.toThrow('setup rolled back')
     expect(lifecycle).not.toHaveBeenCalled()
+  })
+
+  it('rejects one-shot starts beyond the live-run budget and admits again after settle', async () => {
+    // Depth caps levels; this caps breadth: without it N parallel calls per
+    // step across levels compound exponentially. Pending stub results keep
+    // every slot live without real children.
+    const { subagents } = await service()
+    subagents.registerProvider({
+      name: 'broken',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: async () => { throw new Error('boom') },
+    })
+    // A failed provider startup must not consume budget.
+    await expect(subagents.start('broken', baseRequest())).rejects.toThrow('boom')
+    const pending = Promise.withResolvers<SubagentResult>()
+    subagents.registerProvider({
+      name: 'capped',
+      capabilities: NO_CAPS,
+      inheritsParentContext: false,
+      start: async () => ({
+        id: SessionId('capped-child'),
+        localAgent: undefined,
+        result: pending.promise,
+        dispose: async () => {},
+      }),
+    })
+    const runs: SubagentRun[] = []
+    for (let i = 0; i < MAX_LIVE_SUBAGENT_RUNS; i++) {
+      runs.push(await subagents.start('capped', baseRequest()))
+    }
+    await expect(subagents.start('capped', baseRequest())).rejects.toMatchObject({ code: 'CONCURRENCY_LIMIT_EXCEEDED' })
+    pending.resolve({ output: [], stopReason: 'completed' })
+    await runs[0]!.result
+    await Promise.resolve()
+    await expect(subagents.start('capped', baseRequest())).resolves.toBeDefined()
   })
 
   it('emits an enriched end event and maps result rejection to error telemetry', async () => {

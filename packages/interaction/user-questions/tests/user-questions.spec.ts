@@ -101,6 +101,23 @@ describe('UserQuestionService', () => {
     expect(p.ask).not.toHaveBeenCalled()
   })
 
+  it('aborts a hung answerer without provider cooperation', async () => {
+    const ctx = new Context()
+    await ctx.plugin(UserQuestionService)
+    registerAnswerer(ctx, { ask: () => new Promise<AskUserQuestionAnswer>(() => undefined) })
+    const controller = new AbortController()
+
+    const answer = ctx.userQuestions.ask({
+      questions: [{ id: 'confirm', question: 'Proceed?' }],
+      signal: controller.signal,
+    })
+    controller.abort()
+
+    // No provider settlement involved: pre-fix this hangs until the test
+    // timeout instead of rejecting.
+    await expect(answer).rejects.toMatchObject({ name: 'UserQuestionError', code: 'ASK_ABORTED' })
+  })
+
   it('normalizes an in-flight signal cancellation to ASK_ABORTED', async () => {
     const ctx = new Context()
     await ctx.plugin(UserQuestionService)

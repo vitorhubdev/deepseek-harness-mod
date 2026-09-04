@@ -181,6 +181,10 @@ export class ScheduleRuntime {
       this.timer = undefined
       this.requestDrive()
     }, delay)
+    // Unref'd: an armed schedule timer must never hold the process open.
+    // Wakeups re-derive from the durable log on next start, and dispose
+    // clears the timer outright.
+    this.timer.unref()
   }
 
   /** Await one public idle boundary without holding admission or creating a retry timer. */

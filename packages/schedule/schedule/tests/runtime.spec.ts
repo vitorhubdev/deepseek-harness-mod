@@ -797,4 +797,30 @@ describe('Schedule runtime failure and teardown boundaries', () => {
     await settle()
     expect(test.followed).toEqual([])
   })
+
+  it('unrefs the armed timer so it never holds the process open', async () => {
+    const captured: unknown[] = []
+    const fakeSetTimeout = globalThis.setTimeout
+    const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((callback: () => void, ms?: number) => {
+      const handle = (fakeSetTimeout as (...args: [() => void, number?]) => unknown)(callback, ms)
+      captured.push(handle)
+      return handle
+    }) as typeof setTimeout)
+    try {
+      const test = await harness()
+      appendAfter(test, 'schedule-1', 60)
+      const runtime = runtimeFor(test)
+      const before = captured.length
+      runtime.start()
+      await settle()
+      const armed = captured.slice(before)
+      expect(armed.length).toBeGreaterThan(0)
+      for (const handle of armed) {
+        expect((handle as { hasRef?: () => boolean }).hasRef?.()).toBe(false)
+      }
+      await runtime.dispose()
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })

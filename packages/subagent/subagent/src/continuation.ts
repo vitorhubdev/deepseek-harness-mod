@@ -1455,37 +1455,44 @@ export class SubagentContinuationManager {
    */
   private watchSettlement(activation: Activation): void {
     void (async () => {
-      while (disposalOf(activation) === undefined) {
-        const poked = activation.poke.promise
-        await Promise.race([activation.handle.agent.whenIdle(), poked])
-        if (disposalOf(activation) !== undefined) return
-        // Re-check settlement INSIDE the child lock and begin disposal in the
-        // same critical section, so a concurrent delivery either wins admission
-        // before the transaction opens or waits for release and cold-resumes.
-        // Deciding outside the lock would let a delivery observe a not-yet
-        // resident handle that this watcher is already about to tear down.
-        const settling = await this.locks.run<SettlementAttempt>(activation.childId, () => {
-          if (disposalOf(activation) !== undefined || this.stateOf(activation) !== 'settled') {
-            return Promise.resolve({ settling: false })
+      try {
+        while (disposalOf(activation) === undefined) {
+          const poked = activation.poke.promise
+          await Promise.race([activation.handle.agent.whenIdle(), poked])
+          if (disposalOf(activation) !== undefined) return
+          // Re-check settlement INSIDE the child lock and begin disposal in the
+          // same critical section, so a concurrent delivery either wins admission
+          // before the transaction opens or waits for release and cold-resumes.
+          // Deciding outside the lock would let a delivery observe a not-yet
+          // resident handle that this watcher is already about to tear down.
+          const settling = await this.locks.run<SettlementAttempt>(activation.childId, () => {
+            if (disposalOf(activation) !== undefined || this.stateOf(activation) !== 'settled') {
+              return Promise.resolve({ settling: false })
+            }
+            // `dispose()` assigns its memoized transaction synchronously, so
+            // admission is closed before this critical section releases.
+            return Promise.resolve({ settling: true, done: this.dispose(activation) })
+          })
+          if (!settling.settling) {
+            // Still running, or waiting on descendants: re-observe after the next
+            // accepted message or ownership release.
+            if (activation.handle.agent.status !== 'running') await poked
+            continue
           }
-          // `dispose()` assigns its memoized transaction synchronously, so
-          // admission is closed before this critical section releases.
-          return Promise.resolve({ settling: true, done: this.dispose(activation) })
-        })
-        if (!settling.settling) {
-          // Still running, or waiting on descendants: re-observe after the next
-          // accepted message or ownership release.
-          if (activation.handle.agent.status !== 'running') await poked
-          continue
+          try {
+            await settling.done
+          } catch (error: unknown) {
+            this.ctx.logger.warn(
+              `subagent "${activation.childId}" activation teardown failed: ${errorChain(error)}`,
+            )
+          }
+          return
         }
-        try {
-          await settling.done
-        } catch (error: unknown) {
-          this.ctx.logger.warn(
-            `subagent "${activation.childId}" activation teardown failed: ${errorChain(error)}`,
-          )
-        }
-        return
+      /* v8 ignore next -- observing whenIdle/locks rejects only on a driver-level fault no test can inject */
+      } catch (error: unknown) {
+        this.ctx.logger.warn(
+          `subagent "${activation.childId}" settlement observation failed: ${errorChain(error)}`,
+        )
       }
     })()
   }

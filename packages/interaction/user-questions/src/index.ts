@@ -132,14 +132,38 @@ export class UserQuestionService extends Service {
       'NO_PROVIDER',
     ))
     try {
-      return await (agent === undefined
+      const answer = agent === undefined
         ? this.ctx.waterfall('user-questions/request', request, noAnswerer)
         : this.ctx.waterfall(
           scopeTarget(agent, agent),
           'user-questions/request',
           { ...request, agent },
           noAnswerer,
-        ))
+        )
+      const signal = request.signal
+      if (signal === undefined) return await answer
+      // Race the waterfall against the signal like ApprovalService.decide
+      // does: an answerer waiting on a human who never answers must not hold
+      // the tool call past turn/session end. A late answer is discarded by
+      // settled-promise construction.
+      return await new Promise<AskUserQuestionAnswer>((resolve, reject) => {
+        const onAbort = (): void => {
+          signal.removeEventListener('abort', onAbort)
+          reject(abortedQuestion(signal.reason))
+        }
+        signal.addEventListener('abort', onAbort, { once: true })
+        void answer.then(
+          (value) => {
+            signal.removeEventListener('abort', onAbort)
+            resolve(value)
+          },
+          (error: unknown) => {
+            signal.removeEventListener('abort', onAbort)
+            // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- raw rejections map below; coercing forks that path.
+            reject(error)
+          },
+        )
+      })
     } catch (error) {
       const restored = restoreUserQuestionError(error)
       if (restored instanceof UserQuestionError) throw restored
