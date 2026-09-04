@@ -98,7 +98,7 @@ export function apply(ctx: Context): void {
   const browserInjected = (): WorkspaceBrowserInjected => ({
     // Explicit group actions keep their target; unscoped New Session inherits
     // the current Session Workspace before the recent-Workspace fallback.
-    startSession: (workspaceId) => { uiWorkspace.startSession(workspaceId) },
+    startSession: workspaceId => uiWorkspace.startSession(workspaceId),
     open: (sessionId) => { sessions.open(sessionId) },
     searchSessions,
     searchResultLimit: sessions.searchResultLimit,
@@ -111,11 +111,10 @@ export function apply(ctx: Context): void {
       if (!result.ok) throw new Error(result.error.message)
     },
     forkSession: (sessionId) => {
-      sessions.fork({ sessionId, increaseTitle: true })
+      // Returned (not voided): the row surfaces a stuck fork as a visible
+      // failure instead of a silent no-op.
+      return sessions.fork({ sessionId, increaseTitle: true })
         .then((childId) => { sessions.open(childId) })
-        .catch(() => {
-          // Fork or child-rename failure keeps the current selection.
-        })
     },
     renameWorkspace: async (workspaceId, title) => { await workspaces.rename(workspaceId, title) },
     deleteWorkspace: async (workspaceId) => { await workspaces.delete(workspaceId) },

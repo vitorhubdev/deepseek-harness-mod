@@ -29,7 +29,7 @@ const noAttention: AttentionSnapshot = new Map()
 const useSessionPendingInteraction: SidebarRootComponentProps['useSessionPendingInteraction'] = selector => selector(noAttention)
 
 function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; width?: number } = {}) {
-  const startSession = vi.fn()
+  const startSession = vi.fn(async () => undefined)
   const toggleSidebar = vi.fn()
   let regionOwner: SidebarSectionOwnerProps | undefined
   let settingsOwner: SidebarSettingsOwnerProps | undefined
@@ -85,17 +85,69 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 }
 
 describe('SidebarRoot shell', () => {
-  it('routes New Session (capsule + wordmark) and the column toggle', () => {
+  it('routes New Session (capsule + wordmark) and the column toggle', async () => {
     const b = mountShell()
     expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
     expect(screen.getByTestId('custom-brand-name')).toBeTruthy()
-    // Expanded, both the wordmark and the capsule start a session.
+    // Expanded, both the wordmark and the capsule start a session — but the
+    // in-flight start blocks its twin, so one gesture means one session.
     const starters = screen.getAllByRole('button', { name: 'New session' })
     expect(starters).toHaveLength(2)
-    for (const button of starters) fireEvent.click(button)
+    fireEvent.click(starters[0]!)
+    fireEvent.click(starters[1]!)
+    expect(b.startSession).toHaveBeenCalledOnce()
+    await vi.waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'New session' })).toHaveLength(2)
+    })
+    fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[1]!)
     expect(b.startSession).toHaveBeenCalledTimes(2)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(b.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('blocks re-presses and announces busy while a start settles', async () => {
+    let resolveStart!: (id: undefined) => void
+    const b = mountShell()
+    b.startSession.mockImplementation(() => new Promise<undefined>((resolve) => { resolveStart = resolve }))
+    const starters = screen.getAllByRole('button', { name: 'New session' })
+    expect(starters).toHaveLength(2)
+    fireEvent.click(starters[0]!)
+    // Pending: both entries block, expose busy, and name the in-flight work.
+    for (const button of screen.getAllByRole('button', { name: 'Starting session…' })) {
+      expect(button).toHaveProperty('disabled', true)
+      expect(button.getAttribute('aria-busy')).toBe('true')
+    }
+    fireEvent.click(screen.getAllByRole('button', { name: 'Starting session…' })[1]!)
+    expect(b.startSession).toHaveBeenCalledOnce()
+    resolveStart(undefined)
+    await vi.waitFor(() => {
+      expect(screen.getAllByRole('button', { name: 'New session' })).toHaveLength(2)
+    })
+  })
+
+  it('speaks a failed start once and clears it on retry or dismiss', async () => {
+    const b = mountShell()
+    b.startSession.mockRejectedValueOnce(new Error('create exploded'))
+    fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[0]!)
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('create exploded')
+    })
+    // Dismiss clears without retrying.
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(b.startSession).toHaveBeenCalledOnce()
+    // A string rejection renders verbatim too, and the next attempt clears it.
+    b.startSession.mockRejectedValueOnce('plain failure')
+    fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[0]!)
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('plain failure')
+    })
+    b.startSession.mockResolvedValueOnce(undefined)
+    fireEvent.click(screen.getAllByRole('button', { name: 'New session' })[0]!)
+    await vi.waitFor(() => {
+      expect(screen.queryByRole('alert')).toBeNull()
+    })
+    expect(b.startSession).toHaveBeenCalledTimes(3)
   })
 
   it('renders generic brand fallbacks when no package fills the slots', () => {

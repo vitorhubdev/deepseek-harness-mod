@@ -353,6 +353,20 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* In-flight creation: the glyph pulses and the button blocks re-presses
+   until the session opens or the failure lands on the browser alert. */
+.iconButton:disabled {
+  cursor: progress;
+}
+
+.iconButton.creating {
+  animation: creating-pulse 900ms var(--ds-ease-in-out) infinite;
+}
+
+@keyframes creating-pulse {
+  50% { opacity: 0.45; }
+}
+
 /* Chevrons ride the caption grey (#ADB2B8); the folder glyph stays one step
    darker (tertiary, #81858C) per the cell spec. */
 .chevron {
@@ -361,7 +375,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sessionRow,
-  .arrow {
+  .arrow,
+  .iconButton.creating {
     animation: none;
     transition: none;
   }

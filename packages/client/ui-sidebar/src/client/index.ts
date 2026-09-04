@@ -7,6 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the Session root standard-props merge.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SidebarRootInjected } from './contract/slots.ts'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { SidebarRoot } from './SidebarRoot.tsx'
 import { en, zh, type SidebarKey } from './locales.ts'
 
@@ -27,7 +28,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 const NS = 'sidebar'
 
 interface WorkspaceNavigation {
-  startSession(workspaceId?: Parameters<SidebarRootInjected['startSession']>[0]): void
+  startSession(workspaceId?: Parameters<SidebarRootInjected['startSession']>[0]): Promise<SessionId | undefined>
 }
 
 /** Services required by the sidebar plugin. */
@@ -43,7 +44,7 @@ export function apply(ctx: ClientContext): void {
   const injectProps = (): SidebarRootInjected => ({
     // The shell's New Session button rides the Workspace UI's shared action
     // (current Session Workspace, then recent Workspace).
-    startSession: (workspaceId) => { workspaceNavigation.startSession(workspaceId) },
+    startSession: workspaceId => workspaceNavigation.startSession(workspaceId),
     toggleSidebar: () => { ctx.layout.toggleSidebar() },
   })
   ctx.effect(

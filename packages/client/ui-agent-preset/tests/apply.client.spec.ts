@@ -145,7 +145,7 @@ function uiWorkspaceDouble() {
   const starts: unknown[] = []
   return {
     starts,
-    startSession: (workspaceId?: unknown) => { starts.push(workspaceId ?? null) },
+    startSession: async (workspaceId?: unknown) => { starts.push(workspaceId ?? null); return undefined },
   }
 }
 
@@ -495,7 +495,7 @@ describe('ui-agent-preset apply', () => {
     const seat = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
-    section.startCreatorDraft?.()
+    await section.startCreatorDraft?.()
 
     // The pick is staged on the chip's own controller — the session the
     // workspace start produces is what the stage lands on — and exactly one
@@ -536,7 +536,7 @@ describe('ui-agent-preset apply', () => {
     const seat = (slots.entries('conversation.hero.agentPreset')[0]!
       .inject as unknown as () => AgentPresetSeatInjected)()
 
-    section.startCreatorDraft?.()
+    await section.startCreatorDraft?.()
     state.current = 's1'
     state.byId['s1'] = { id: 's1', blank: true }
     sessions.notify()

@@ -116,13 +116,13 @@ describe('ui-workspace apply', () => {
     const b = await bench()
     declare(b.slots, 'sidebar.workspaces', 'conversation.hero.workspace')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
-    const startSession = vi.spyOn(b.ctx.uiWorkspace, 'startSession').mockImplementation(() => undefined)
+    const startSession = vi.spyOn(b.ctx.uiWorkspace, 'startSession').mockResolvedValue(undefined)
 
     const browser = (b.slots.entries('sidebar.workspaces')[0]!.inject as () => WorkspaceBrowserInjected)()
     // Both arms delegate to the shared Session navigation action.
-    browser.startSession('ws' as never)
+    await browser.startSession('ws' as never)
     expect(startSession).toHaveBeenCalledWith('ws')
-    browser.startSession()
+    await browser.startSession()
     expect(startSession).toHaveBeenLastCalledWith(undefined)
     browser.open('session' as never)
     expect(b.open).toHaveBeenCalledWith('session')
@@ -136,7 +136,7 @@ describe('ui-workspace apply', () => {
     await browser.renameSession('session' as never, 'renamed session')
     expect(b.binding).toHaveBeenCalledWith('session')
     expect(b.renameSession).toHaveBeenCalledWith('renamed session')
-    browser.forkSession('session' as never)
+    await browser.forkSession('session' as never)
     await vi.waitFor(() => {
       expect(b.open).toHaveBeenCalledWith('forked')
     })

@@ -109,10 +109,12 @@ function rowHalf(e: { clientY: number; currentTarget: HTMLElement }): 'before' |
  * @param props.t - the browser root's locale seat.
  * @returns the row element.
  */
-export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home, t }: {
+export function ProjectRowItem({ group, onToggle, onCreate, creating = false, actions, drag, home, t }: {
   group: GroupNode
   onToggle: () => void
   onCreate: () => void
+  /** A New Session start is in flight for this group: block re-presses and announce busy. */
+  creating?: boolean | undefined
   /** Real-Workspace actions; absent for the ungrouped bucket (no menu shown). */
   actions?: { rename: () => void; delete: () => void } | undefined
   /** Present only for real Workspace rows in the grouped view. */
@@ -186,8 +188,10 @@ export function ProjectRowItem({ group, onToggle, onCreate, actions, drag, home,
         )}
         <button
           type="button"
-          className={css.iconButton}
+          className={clsx(css.iconButton, creating && css.creating)}
           aria-label={t('actions.newSession.aria', { name: label })}
+          aria-busy={creating || undefined}
+          disabled={creating}
           onClick={(e) => { e.stopPropagation(); onCreate() }}
         >
           <IconPlusOutline16 />
@@ -382,8 +386,8 @@ export function SessionNodeItem({ node, currentId, now, onOpen, onRename, onFork
   onOpen: (id: SessionNode['id']) => void
   /** Open the browser-owned session rename dialog (row menu action). */
   onRename: (id: SessionNode['id'], currentTitle: string) => void
-  /** Fork a session at its last completed turn (row menu action). */
-  onFork: (id: SessionNode['id']) => void
+  /** Fork a session at its last completed turn (row menu action; failures report through the browser alert). */
+  onFork: (id: SessionNode['id']) => unknown
   /** Archive this session (row menu action; commits without a dialog). */
   onArchive: (id: SessionNode['id']) => void
   /** Present only on draggable rows (workspace-group sessions outside search). */

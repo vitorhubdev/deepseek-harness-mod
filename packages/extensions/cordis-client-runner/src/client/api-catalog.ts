@@ -321,9 +321,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         returns: 'a Session already addressable through the Session Controller.',
       },
       {
-        signature: 'startSession(workspaceId?: WorkspaceId): void',
+        signature: 'startSession(workspaceId?: WorkspaceId): Promise<SessionId | undefined>',
         description: 'Start a New Session flow and navigate to its Session.',
         parameters: [{ name: 'workspaceId', description: 'explicit target; absent inherits the current or most recent Workspace.' }],
+        returns: 'the opened Session id, undefined when clearing into the blank view; rejects when creation fails.',
       },
       {
         signature: 'archiveSession(sessionId: SessionId): Promise<void>',

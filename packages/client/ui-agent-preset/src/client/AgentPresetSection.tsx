@@ -49,8 +49,9 @@ export interface AgentPresetSectionInjected {
    * Stage the self-referential preset and start a new session on it — the
    * guided way to author a preset, beside copying. Absent when the surface
    * is composed without the conversation flow to land the session in.
+   * @returns settles when the session opens; rejects when creation fails.
    */
-  startCreatorDraft?: () => void
+  startCreatorDraft?: () => Promise<unknown>
   /** Ask for delete confirmation, or dismiss it with null. */
   confirmDelete: (id: string | null) => void
   /** Delete the preset awaiting confirmation. */
@@ -208,21 +209,35 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
      read this very composition and author a new one in conversation.
      Offered only where that preset is actually on the roster and a
      session can be landed; without a writable root the draft could
-     never be discovered, so the reason rides the disabled button. */
+     never be discovered, so the reason rides the disabled button.
+     The panel stays open until the session opens: closing first would
+     strand a failed start with no surface to report it on. */
+  const [draftStarting, setDraftStarting] = useState(false)
+  const [draftError, setDraftError] = useState<string | null>(null)
   const creatorButton = props.startCreatorDraft !== undefined && state.rows.some(row => row.id === 'cordis')
     ? (
       <button
         type="button"
         className={css.creatorButton}
-        disabled={!state.authorable}
+        disabled={!state.authorable || draftStarting}
+        aria-busy={draftStarting || undefined}
         title={state.authorable ? undefined : t('duplicateUnavailable')}
         onClick={() => {
-          props.startCreatorDraft?.()
-          props.close()
+          const started = props.startCreatorDraft?.()
+          if (started === undefined) return
+          setDraftStarting(true)
+          setDraftError(null)
+          started.then(
+            () => { props.close() },
+            (reason: unknown) => {
+              setDraftStarting(false)
+              setDraftError(reason instanceof Error ? reason.message : String(reason))
+            },
+          )
         }}
       >
         <IconPlusOutline16 size={14} />
-        {t('creatorDraft')}
+        {draftStarting ? t('creating') : t('creatorDraft')}
       </button>
     )
     : null
@@ -238,7 +253,14 @@ export function AgentPresetSection(props: AgentPresetSectionProps): ReactNode {
           .map(row => ({ row, text: presetDisplayText(row, t) }))
         // The custom group is where a preset of one's own will appear, so it
         // stays on screen even while empty: heading plus the creator entry.
-        const tail = trust === 'user' ? creatorButton : null
+        // A failed draft start reports under the entry (the panel stays open
+        // until the session opens, so the failure always has this surface).
+        const tail = trust === 'user' && creatorButton !== null ? (
+          <>
+            {creatorButton}
+            {draftError === null ? null : <p className={css.error} role="alert">{draftError}</p>}
+          </>
+        ) : null
         if (group.length === 0 && tail === null) return null
         return (
           <section key={trust} className={css.group}>

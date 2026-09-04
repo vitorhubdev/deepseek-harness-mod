@@ -260,30 +260,34 @@ describe('UiWorkspaceService', () => {
     })
     b.sessions.create.mockImplementation(async options => sid(`opened-${String(options?.workspaceId)}`))
 
-    b.uiWorkspace.startSession(wid('recent-home'))
+    // The start settles on the open, so buttons can block until it does.
+    await expect(b.uiWorkspace.startSession(wid('recent-home'))).resolves.toBe(sid('opened-recent-home'))
+    expect(b.sessions.open).toHaveBeenLastCalledWith(sid('opened-recent-home'))
+
+    void b.uiWorkspace.startSession(wid('recent-home'))
     await vi.waitFor(() => {
       expect(b.sessions.open).toHaveBeenLastCalledWith(sid('opened-recent-home'))
     })
 
     b.sessions.open(current.id)
-    b.uiWorkspace.startSession()
+    void b.uiWorkspace.startSession()
     await vi.waitFor(() => {
       expect(b.sessions.open).toHaveBeenLastCalledWith(sid('opened-current-home'))
     })
 
     b.sessions.clear()
-    b.uiWorkspace.startSession()
+    void b.uiWorkspace.startSession()
     await vi.waitFor(() => {
       expect(b.sessions.open).toHaveBeenLastCalledWith(sid('opened-recent-home'))
     })
 
     const empty = bench()
-    empty.uiWorkspace.startSession()
+    await expect(empty.uiWorkspace.startSession()).resolves.toBeUndefined()
     expect(empty.sessions.clear).toHaveBeenCalledOnce()
 
     const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     b.sessions.create.mockRejectedValueOnce(new Error('create failed'))
-    b.uiWorkspace.startSession(wid('recent-home'))
+    await expect(b.uiWorkspace.startSession(wid('recent-home'))).rejects.toThrow('create failed')
     await vi.waitFor(() => {
       expect(warning).toHaveBeenCalledWith('new session failed:', expect.any(Error))
     })

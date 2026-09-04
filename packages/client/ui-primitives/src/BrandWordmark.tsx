@@ -57,24 +57,6 @@ export function BrandWordmark({ size = 24, className, includeMark = true }: Bran
           </clipPath>
         </defs>
       </svg>
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          height: 18,
-          padding: '0 6px',
-          borderRadius: 6,
-          background: 'var(--dsw-alias-state-warn-primary, #ff6b00)',
-          color: 'white',
-          fontSize: 10,
-          fontWeight: 700,
-          lineHeight: '14px',
-          letterSpacing: 0.3,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        MOD 1.01
-      </span>
     </span>
   )
 }

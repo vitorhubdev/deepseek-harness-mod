@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
+  FishLogo, IconCloseFill14, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
 import css from './SidebarRoot.module.css'
@@ -123,6 +123,26 @@ export function SidebarRoot({
 
   const buildVersion = localBuildVersion()
 
+  // New Session commits asynchronously (blank reuse-or-create, then open):
+  // both entry buttons block re-presses and announce busy until the session
+  // opens or the failure lands visibly below — never a silent no-op.
+  const [starting, setStarting] = useState(false)
+  const [startError, setStartError] = useState<string | null>(null)
+  const requestStart = (): void => {
+    /* v8 ignore next -- both entries are disabled while a start is pending. */
+    if (starting) return
+    setStarting(true)
+    setStartError(null)
+    startSession().then(
+      () => { setStarting(false) },
+      (reason: unknown) => {
+        setStarting(false)
+        setStartError(reason instanceof Error ? reason.message : String(reason))
+      },
+    )
+  }
+  const dismissStartError = (): void => { setStartError(null) }
+
   return (
     <div
       ref={column}
@@ -144,8 +164,10 @@ export function SidebarRoot({
           <button
             type="button"
             className={clsx(css.brand, css.wide)}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
+            aria-label={starting ? t('session.starting') : t('session.new.label')}
+            aria-busy={starting || undefined}
+            disabled={starting}
+            onClick={() => { requestStart() }}
           >
             <span className={css.brandIdentity} aria-hidden="true">
               <span className={css.brandMark}>
@@ -190,14 +212,34 @@ export function SidebarRoot({
       <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
         <button
           type="button"
-          className={css.newSession}
-          aria-label={t('session.new.label')}
-          onClick={() => { startSession() }}
+          className={clsx(css.newSession, starting && css.starting)}
+          aria-label={starting ? t('session.starting') : t('session.new.label')}
+          aria-busy={starting || undefined}
+          disabled={starting}
+          onClick={() => { requestStart() }}
         >
           <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          {wide && (
+            <span className={clsx(css.newSessionLabel, css.wide)}>
+              {starting ? t('session.starting') : t('session.new')}
+            </span>
+          )}
         </button>
       </Tooltip>
+      {/* A failed start speaks once, inline: the next attempt clears it, as does the dismiss. */}
+      {wide && startError !== null && (
+        <div className={css.startError} role="alert">
+          <span className={css.startErrorText}>{startError}</span>
+          <button
+            type="button"
+            className={css.startErrorDismiss}
+            aria-label={t('action.dismiss')}
+            onClick={dismissStartError}
+          >
+            <IconCloseFill14 />
+          </button>
+        </div>
+      )}
 
       {/* The browsing region fills the column between the controls and the
           foot in both states; its rail icon column rides the same slot. */}

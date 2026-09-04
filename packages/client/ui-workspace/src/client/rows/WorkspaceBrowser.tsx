@@ -232,9 +232,15 @@ function workspaceGroupHalf(e: { clientY: number; currentTarget: HTMLElement }):
 
 type SessionTreeProps = Pick<
   WorkspaceBrowserProps,
-  'useSessions' | 'useSessionPendingInteraction' | 'startSession' | 'open' | 'forkSession'
+  'useSessions' | 'useSessionPendingInteraction' | 'open' | 'forkSession'
   | 'insertWorkspaceBefore' | 'insertSessionBefore' | 't'
 > & {
+  /**
+   * New Session starter with browser-owned pending tracking: void because
+   * settle (open or shared alert) is handled inside, unlike the raw
+   * contract starter the browser root holds.
+   */
+  startSession: (workspaceId: WorkspaceId) => void
   /** Host account home for POSIX hover-path abbreviation. */
   home?: string | undefined
   workspaces: readonly WorkspaceView[]
@@ -252,6 +258,8 @@ type SessionTreeProps = Pick<
   setSessionOrder: (accountKey: string, order: string[]) => void
   /** Registry-global archive set (hidden rows). */
   archivedSessionIds: readonly SessionNode['id'][]
+  /** Workspace with a New Session in flight (its ＋ stays disabled and announced busy). */
+  startingWorkspaceId: WorkspaceId | null
   /** Open the browser-owned rename dialog for a real Workspace group. */
   onRenameRequest: (workspaceId: WorkspaceId, currentTitle: string) => void
   /** Open the browser-owned delete-confirmation dialog for a real Workspace group. */
@@ -267,6 +275,7 @@ type SessionTreeProps = Pick<
 /** The scrolling session tree; unmounting drops the sessions subscription and expand-all state. */
 function SessionTree({
   useSessions, useSessionPendingInteraction, startSession, open, forkSession, workspaces, archivedSessionIds,
+  startingWorkspaceId,
   onRenameRequest, onDeleteRequest, onSessionRename, onSessionArchive,
   insertWorkspaceBefore, insertSessionBefore, orderBy,
   groupExpansion, setGroupExpanded,
@@ -511,6 +520,7 @@ function SessionTree({
                     startSession(group.workspaceId)
                   }
                 }}
+                creating={startingWorkspaceId === group.workspaceId}
                 drag={workspaceDragProps}
                 actions={group.workspaceId === undefined
                   ? undefined
@@ -1024,12 +1034,46 @@ export function WorkspaceBrowser({
 
   // Archive is dialog-free: not destructive (the log and the accounting slot
   // remain), so the menu action commits directly; the row disappears when the
-  // archive-set echo lands. Failures are non-fatal console diagnostics, the
-  // same posture as reorder rejections.
+  // archive-set echo lands.
+  // Fork and archive share one transient browser-level alert: both commit
+  // without a dialog of their own, so a silent rejection would read as a
+  // dead menu action. A new attempt or an explicit dismiss clears it.
+  const [actionError, setActionError] = useState<string | null>(null)
+  const reportActionFailure = (reason: unknown): void => {
+    setActionError(reason instanceof Error ? reason.message : String(reason))
+  }
+  const dismissActionError = (): void => { setActionError(null) }
   const onSessionArchive = (sessionId: SessionNode['id']) => {
+    setActionError(null)
     archiveSession(sessionId).catch((reason: unknown) => {
       console.warn('session archive rejected:', reason)
+      reportActionFailure(reason)
     })
+  }
+  const handleForkSession = (sessionId: SessionNode['id']): Promise<void> => {
+    setActionError(null)
+    // Caught inside: the row stays fire-and-forget-typed while the failure
+    // still lands on the shared alert — no unhandled rejection either way.
+    return forkSession(sessionId).catch(reportActionFailure)
+  }
+
+  // Group-level ＋ starts share the sidebar button's honesty: the pressed
+  // group stays disabled and announced busy until its session opens or the
+  // failure lands on the shared alert above. Settle is handled inside, so
+  // callers treat it as fire-and-tracked.
+  const [startingWorkspaceId, setStartingWorkspaceId] = useState<WorkspaceId | null>(null)
+  const startWorkspaceSession = (workspaceId: WorkspaceId): void => {
+    /* v8 ignore next -- the pressed group stays disabled while its start is pending. */
+    if (startingWorkspaceId !== null) return
+    setStartingWorkspaceId(workspaceId)
+    setActionError(null)
+    startSession(workspaceId).then(
+      () => { setStartingWorkspaceId(null) },
+      (reason: unknown) => {
+        setStartingWorkspaceId(null)
+        reportActionFailure(reason)
+      },
+    )
   }
 
   // Delete dialog is separate from the row so a successful removal can
@@ -1174,11 +1218,27 @@ export function WorkspaceBrowser({
           side="right"
           onPick={(workspaceId) => {
             setWsPickerOpen(false)
-            startSession(workspaceId)
+            startWorkspaceSession(workspaceId)
           }}
           onClose={() => { setWsPickerOpen(false) }}
         />
       </div>
+
+      {/* Transient failure of a dialog-free action (fork/archive/group start):
+          the list itself is the success signal, so only failures speak. */}
+      {actionError !== null && (
+        <div className={css.actionError} role="alert">
+          <span className={css.actionErrorText}>{actionError}</span>
+          <button
+            type="button"
+            className={css.actionErrorDismiss}
+            aria-label={t('action.dismiss')}
+            onClick={dismissActionError}
+          >
+            <IconCloseFill14 />
+          </button>
+        </div>
+      )}
 
       {/* The collapsed rail keeps search as its own 36px control. */}
       {!wide && <div className={css.search}>
@@ -1219,7 +1279,7 @@ export function WorkspaceBrowser({
             ? (
               <FlatList
                 useSessions={useSessions} useSessionPendingInteraction={useSessionPendingInteraction}
-                open={open} forkSession={forkSession}
+                open={open} forkSession={handleForkSession}
                 onSessionRename={onSessionRename} onSessionArchive={onSessionArchive}
                 archivedSessionIds={archivedSessionIds}
                 orderBy={orderBy}
@@ -1236,7 +1296,7 @@ export function WorkspaceBrowser({
                 useSessionPendingInteraction={useSessionPendingInteraction}
                 onSessionRename={onSessionRename}
                 onSessionArchive={onSessionArchive}
-                forkSession={forkSession}
+                forkSession={handleForkSession}
                 workspaces={workspaces}
                 groupExpansion={groupExpansion}
                 setGroupExpanded={actions.setGroupExpanded}
@@ -1245,7 +1305,8 @@ export function WorkspaceBrowser({
                 syncSessionOrderAccount={actions.syncSessionOrderAccount}
                 setSessionOrder={actions.setSessionOrder}
                 archivedSessionIds={archivedSessionIds}
-                startSession={startSession}
+                startSession={startWorkspaceSession}
+                startingWorkspaceId={startingWorkspaceId}
                 open={open}
                 insertWorkspaceBefore={insertWorkspaceBefore}
                 insertSessionBefore={insertSessionBefore}

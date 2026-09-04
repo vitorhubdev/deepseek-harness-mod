@@ -98,7 +98,7 @@ export function apply(ctx: ClientContext): void {
   // conversation scope below (the seat and the session flow live there) and
   // unbound with it, so the section's face reads the current binding per
   // render and simply hides the button while no flow exists.
-  let creatorDraft: (() => void) | undefined
+  let creatorDraft: (() => Promise<unknown>) | undefined
 
   // The new-session chip and the header label: one controller, because the
   // staged choice belongs to the flow rather than to any one session.
@@ -148,7 +148,9 @@ export function apply(ctx: ClientContext): void {
         // The introduce cue makes the chip announce the pick the user never
         // made on this screen — the stage happened back in settings.
         seat.stage('cordis', true)
-        scope.uiWorkspace.startSession()
+        // Returned, not voided: a failed start must not float as an unhandled
+        // rejection — the sidebar announces it on its own start alert.
+        return scope.uiWorkspace.startSession()
       }
       const chip = scope.slots.register({
         name: 'conversation.hero.agentPreset',

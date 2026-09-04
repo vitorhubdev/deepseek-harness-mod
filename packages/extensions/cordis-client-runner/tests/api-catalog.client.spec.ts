@@ -14,7 +14,7 @@ describe('Client Cordis inspect catalog', () => {
     expect(SERVICE_API.find(service => service.key === 'uiWorkspace')?.methods.map(method => method.signature))
       .toEqual([
         'connectWorkspace(workspaceId: WorkspaceId): Promise<SessionId>',
-        'startSession(workspaceId?: WorkspaceId): void',
+        'startSession(workspaceId?: WorkspaceId): Promise<SessionId | undefined>',
         'archiveSession(sessionId: SessionId): Promise<void>',
         'pickDirectory(): Promise<string | null>',
         'listDirectory(path?: string, signal?: AbortSignal): Promise<DirectoryListing>',

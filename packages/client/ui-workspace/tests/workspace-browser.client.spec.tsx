@@ -71,12 +71,12 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     useWorkspaces: hook(workspaceState([])),
     useStore: bindSnapshotSelector(store),
     actions: store.actions,
-    startSession: vi.fn(),
+    startSession: vi.fn(async () => undefined),
     open: vi.fn(),
     searchSessions: vi.fn(async () => ({ items: [], hasMore: false })),
     searchResultLimit: 20,
     renameSession: vi.fn(async () => {}),
-    forkSession: vi.fn(),
+    forkSession: vi.fn(async () => {}),
     renameWorkspace: vi.fn(async () => {}),
     deleteWorkspace: vi.fn(async () => {}),
     archiveSession: vi.fn(async () => {}),
@@ -448,9 +448,68 @@ describe('WorkspaceBrowser', () => {
       await Promise.resolve()
       expect(warn).toHaveBeenCalledWith('session archive rejected:', rejection)
       expect(screen.getByText('alpha-s')).toBeTruthy()
+      // The failure also speaks visibly (the row stays put on purpose) and
+      // dismisses without side effects.
+      await vi.waitFor(() => {
+        expect(screen.getByRole('alert').textContent).toContain('archive exploded')
+      })
+      fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+      expect(screen.queryByRole('alert')).toBeNull()
     } finally {
       warn.mockRestore()
     }
+  })
+
+  it('speaks a failed fork without moving the selection', async () => {
+    const forkSession = vi.fn(async (): Promise<void> => { throw 'fork exploded' })
+    mount({
+      useSessions: hook(sessionState([summary('parent-s', 2)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['parent-s'])])),
+      forkSession,
+    })
+    fireEvent.click(screen.getByText('alpha'))
+    fireEvent.click(screen.getByRole('button', { name: '会话“parent-s”的操作' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: '分叉会话' }))
+    expect(forkSession).toHaveBeenCalledWith(sid('parent-s'))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('fork exploded')
+    })
+  })
+
+  it('blocks the group ＋ while its session opens and announces busy', async () => {
+    let resolveStart!: (id: undefined) => void
+    const startSession = vi.fn(() => new Promise<undefined>((resolve) => { resolveStart = resolve }))
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+      startSession,
+    })
+    const plus = screen.getByRole('button', { name: '在“alpha”中新建会话' })
+    fireEvent.click(plus)
+    expect(plus).toHaveProperty('disabled', true)
+    expect(plus.getAttribute('aria-busy')).toBe('true')
+    // A second press while pending starts nothing new.
+    fireEvent.click(plus)
+    expect(startSession).toHaveBeenCalledOnce()
+    resolveStart(undefined)
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: '在“alpha”中新建会话' })).toHaveProperty('disabled', false)
+    })
+  })
+
+  it('speaks a failed group start and clears it on dismiss', async () => {
+    const startSession = vi.fn(async (): Promise<undefined> => { throw new Error('group start exploded') })
+    mount({
+      useSessions: hook(sessionState([summary('alpha-s', 1)])),
+      useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
+      startSession,
+    })
+    fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('group start exploded')
+    })
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('renders a fork child as a top-level row without a session twist', () => {
@@ -473,7 +532,7 @@ describe('WorkspaceBrowser', () => {
       useWorkspaces: hook(workspaceState([workspace('alpha', ['alpha-s'])])),
       startSession,
     })
-    startSession.mockImplementation(() => {
+    startSession.mockImplementation(async () => {
       expect(b.store.getSnapshot().groupExpansion).toEqual({ alpha: true })
     })
     expect(screen.queryByText('alpha-s')).toBeNull()
@@ -557,7 +616,7 @@ describe('WorkspaceBrowser', () => {
     await waitFor(() => {
       expect(b.store.getSnapshot().sessionOrderByAccount.alpha).toEqual(['old', 'blank', 'mid'])
     })
-    startSession.mockImplementation(() => {
+    startSession.mockImplementation(async () => {
       rerender(b, { useSessions: hook(sessionState(items, { current: sid('blank') })) })
     })
     fireEvent.click(screen.getByRole('button', { name: '在“alpha”中新建会话' }))

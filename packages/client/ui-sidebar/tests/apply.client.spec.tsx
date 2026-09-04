@@ -48,9 +48,9 @@ describe('ui-sidebar apply', () => {
     const injected = (b.slots.entries('sidebar')[0]!.inject as () => SidebarRootInjected)()
     expect(Object.keys(injected)).toEqual(['startSession', 'toggleSidebar'])
     // Both arms delegate to the Workspace UI's shared New Session action.
-    injected.startSession('workspace' as never)
+    void injected.startSession('workspace' as never)
     expect(b.uiWorkspace.startSession).toHaveBeenCalledWith('workspace')
-    injected.startSession()
+    void injected.startSession()
     expect(b.uiWorkspace.startSession).toHaveBeenLastCalledWith(undefined)
     injected.toggleSidebar()
     expect(b.layout.toggleSidebar).toHaveBeenCalledOnce()

@@ -22,8 +22,9 @@ export interface UiWorkspace {
   /**
    * Start a New Session flow and navigate to its Session.
    * @param workspaceId - explicit target; absent inherits the current or most recent Workspace.
+   * @returns the opened Session id, undefined when clearing into the blank view, and rejects when creation fails.
    */
-  startSession(workspaceId?: WorkspaceId): void
+  startSession(workspaceId?: WorkspaceId): Promise<SessionId | undefined>
   /**
    * Archive a Session and clear it when it is the current selection.
    * @param sessionId - Session to archive.
@@ -111,7 +112,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     return attempt
   }
 
-  startSession(workspaceId?: WorkspaceId): void {
+  startSession(workspaceId?: WorkspaceId): Promise<SessionId | undefined> {
     const workspace = this.workspaces.list.getSnapshot()
     const sessions = this.sessions.list.getSnapshot()
     const current = sessions.current
@@ -124,11 +125,19 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const target = workspaceId ?? currentWorkspaceId ?? recent
     if (target === undefined) {
       this.sessions.clear()
-      return
+      return Promise.resolve(undefined)
     }
-    void this.connectWorkspace(target).then(
-      (sessionId) => { this.sessions.open(sessionId) },
-      (reason: unknown) => { console.warn('new session failed:', reason) },
+    // The promise settles on the open (or the failure): buttons disable and
+    // announce pending until it does, and surface the rejection visibly.
+    return this.connectWorkspace(target).then(
+      (sessionId) => {
+        this.sessions.open(sessionId)
+        return sessionId
+      },
+      (reason: unknown) => {
+        console.warn('new session failed:', reason)
+        throw reason
+      },
     )
   }
 

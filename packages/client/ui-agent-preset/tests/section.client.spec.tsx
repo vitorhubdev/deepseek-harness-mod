@@ -47,7 +47,7 @@ function renderSection(
     load: vi.fn(() => Promise.resolve()),
     // The shell-owned section affordance (SettingsSectionOwnerProps.close).
     close: vi.fn(),
-    ...options.creator === false ? {} : { startCreatorDraft: vi.fn() },
+    ...options.creator === false ? {} : { startCreatorDraft: vi.fn(async () => {}) },
     view: vi.fn(() => Promise.resolve()),
     closeView: vi.fn(),
     beginCopy: vi.fn(),
@@ -254,7 +254,7 @@ describe('the preset list', () => {
     expect(actions.view).toHaveBeenCalledWith('standard')
   })
 
-  it('starts a creator-mode draft session and leaves settings', () => {
+  it('starts a creator-mode draft session and leaves settings once it opens', async () => {
     const actions = renderSection({
       rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
     })
@@ -263,8 +263,56 @@ describe('the preset list', () => {
 
     expect(actions.startCreatorDraft).toHaveBeenCalledTimes(1)
     // Leaving settings is part of the gesture: the flow lands in the new
-    // session, not behind the modal.
-    expect(actions.close).toHaveBeenCalledTimes(1)
+    // session, not behind the modal — but only once the start settles.
+    await vi.waitFor(() => { expect(actions.close).toHaveBeenCalledTimes(1) })
+  })
+
+  it('blocks the draft entry and announces busy while the session opens', async () => {
+    let resolveStart!: () => void
+    const actions = renderSection({
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    })
+    actions.startCreatorDraft?.mockImplementation(() => new Promise<void>((resolve) => { resolveStart = resolve }))
+    const entry = screen.getByRole('button', { name: en.creatorDraft })
+    fireEvent.click(entry)
+    expect(screen.getByRole('button', { name: en.creating })).toHaveProperty('disabled', true)
+    fireEvent.click(screen.getByRole('button', { name: en.creating }))
+    expect(actions.startCreatorDraft).toHaveBeenCalledTimes(1)
+    resolveStart()
+    await vi.waitFor(() => { expect(actions.close).toHaveBeenCalledTimes(1) })
+  })
+
+  it('keeps settings open and speaks a failed draft start', async () => {
+    const actions = renderSection({
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    })
+    actions.startCreatorDraft?.mockRejectedValueOnce(new Error('draft exploded'))
+    fireEvent.click(screen.getByRole('button', { name: en.creatorDraft }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('draft exploded')
+    })
+    expect(actions.close).not.toHaveBeenCalled()
+    // A string rejection renders verbatim too.
+    actions.startCreatorDraft?.mockRejectedValueOnce('plain draft failure')
+    fireEvent.click(screen.getByRole('button', { name: en.creatorDraft }))
+    await vi.waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('plain draft failure')
+    })
+    expect(actions.close).not.toHaveBeenCalled()
+  })
+
+  it('ignores a contract-violating undefined draft start', async () => {
+    const actions = renderSection({
+      rows: [...READY.rows, { id: 'cordis', trust: 'system', isDefault: false, name: '创造模式' }],
+    })
+    // A foreign implementation resolving to no promise must not crash the
+    // entry: the click is a no-op and the panel stays open.
+    actions.startCreatorDraft?.mockImplementation(() => undefined as unknown as Promise<unknown>)
+    fireEvent.click(screen.getByRole('button', { name: en.creatorDraft }))
+    await Promise.resolve()
+    expect(screen.getByRole('button', { name: en.creatorDraft })).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(actions.close).not.toHaveBeenCalled()
   })
 
   it('keeps the empty custom group on screen: heading plus the creator entry', () => {

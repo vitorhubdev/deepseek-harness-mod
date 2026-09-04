@@ -9,6 +9,7 @@
  */
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls ui-layout's SlotMap merge (the 'sidebar' entry) into every
 // program that sees this contract, so PropsRuntime<'sidebar'> resolves.
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
@@ -95,8 +96,9 @@ export type SidebarRootInjected = {
    * Start a New Session: with a workspace, reuse-or-create its blank session
    * and open it; without one, inherit the current Session Workspace, then the
    * recent Workspace, or clear into the New Session pure view when none exist.
+   * @returns the opened Session id, undefined for the blank view; rejects when creation fails.
    */
-  startSession: (workspaceId?: WorkspaceId) => void
+  startSession: (workspaceId?: WorkspaceId) => Promise<SessionId | undefined>
   /** Toggle the sidebar column through the layout service. */
   toggleSidebar: () => void
 }

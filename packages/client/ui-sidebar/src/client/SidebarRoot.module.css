@@ -124,6 +124,10 @@
   cursor: pointer;
 }
 
+.brand:disabled {
+  cursor: progress;
+}
+
 /* Mark and name are independent slots; the shell owns their shared baseline,
    spacing, and height so either occupant can vary in width. */
 .brandIdentity {
@@ -151,6 +155,13 @@
   font-weight: 600;
   line-height: 24px;
   letter-spacing: 0.04em;
+  /* The wordmark SVG is fixed-width: clip it here so a narrow column cuts
+     the art instead of shoving the panel toggle out of the row. */
+  overflow: hidden;
+}
+
+.brandName > svg {
+  max-width: 100%;
 }
 
 .fallbackBrandName {
@@ -160,20 +171,20 @@
 }
 
 .localBuildBrand {
-  flex: none;
   display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  gap: 1px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
   height: 24px;
   white-space: nowrap;
 }
 
 .localBuildTitle {
   font-size: 12px;
-  line-height: 13px;
+  line-height: 24px;
   letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .iconButton {
@@ -232,15 +243,15 @@
   flex: none;
   display: inline-flex;
   align-items: center;
-  height: 10px;
-  padding: 0 3px;
-  border-radius: 2px;
+  height: 14px;
+  padding: 0 5px;
+  border-radius: 4px;
   color: var(--dsw-alias-label-primary-inverted);
   background: var(--dsw-alias-label-primary);
   font-family: var(--ds-font-family-code);
-  font-size: 6px;
+  font-size: 9px;
   font-weight: 500;
-  line-height: 10px;
+  line-height: 14px;
   white-space: nowrap;
 }
 
@@ -269,6 +280,68 @@
 
 .newSession:hover {
   background: var(--dsw-alias-button-floating-hover);
+}
+
+/* Blocked while the session opens: progress cursor, no hover swap, and a
+   gentle pulse on the glyph until the open (or the failure) lands. */
+.newSession:disabled {
+  cursor: progress;
+}
+
+.newSession:disabled:hover {
+  background: var(--dsw-alias-button-elevated-fill);
+}
+
+.newSession.starting > svg {
+  animation: starting-pulse 900ms var(--ds-ease-in-out) infinite;
+}
+
+@keyframes starting-pulse {
+  50% { opacity: 0.4; }
+}
+
+/* A failed start speaks once, inline below the button: the next attempt or
+   the dismiss clears it. Error ink, never tertiary whisper text. */
+.startError {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 2px 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 10px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.startErrorText {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.startErrorDismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  corner-shape: round;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: inherit;
+}
+
+.startErrorDismiss:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .collapsed .newSession {
@@ -348,6 +421,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .wide,
+  .newSession.starting > svg,
   .fading > *,
   .railIn .iconButton,
   .railIn .newSession,
