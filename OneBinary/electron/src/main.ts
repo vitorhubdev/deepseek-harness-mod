@@ -87,7 +87,9 @@ function ts(): string {
 }
 
 function writeLog(line: string): void {
-  const entry = `[${ts()}] ${line}\n`
+  // PID em cada linha: permite separar inicializações concorrentes
+  // (segunda instância, relaunch) no mesmo arquivo de log.
+  const entry = `[${ts()}|pid=${process.pid}] ${line}\n`
   try {
     appendFileSync(LOG_FILE, entry)
   } catch {}
@@ -323,7 +325,15 @@ async function createWindow(): Promise<void> {
   const splashPath = join(import.meta.dirname, '../assets/splash.html')
   writeLog(`Criando janela — splash=${splashPath} exists=${existsSync(splashPath)} isPackaged=${app.isPackaged}`)
   if (existsSync(splashPath)) {
-    await win.loadFile(splashPath)
+    try {
+      await win.loadFile(splashPath)
+    } catch (error) {
+      // Retry único: load file:// pode falhar transiente sob contenção de
+      // I/O/AV na abertura fria. Segunda falha propaga (semântica anterior).
+      writeLog(`Splash load falhou, 1 retry em 500ms: ${String(error)}`)
+      await new Promise<void>(r => setTimeout(r, 500))
+      await win.loadFile(splashPath)
+    }
   } else {
     writeLog(`Splash não encontrado, tentando fallback getDistIndex=${getDistIndex()}`)
     const dist = getDistIndex()
@@ -579,7 +589,18 @@ async function bootHarness(): Promise<void> {
 async function setupAutoUpdate(): Promise<void> {
   if (!app.isPackaged) return
   try {
-    const { autoUpdater } = await import('electron-updater')
+    // Interop robusta: conforme o empacotamento, o export pode vir como
+    // named (ESM) ou pendurado no default (CJS). Sem isso o updater caía no
+    // catch e o update automático ficava silenciosamente desativado.
+    const updaterModule = await import('electron-updater') as unknown as {
+      autoUpdater?: import('electron-updater').autoUpdater
+      default?: { autoUpdater?: import('electron-updater').autoUpdater }
+    }
+    const autoUpdater = updaterModule.autoUpdater ?? updaterModule.default?.autoUpdater
+    if (autoUpdater === undefined || autoUpdater === null) {
+      writeLog('autoUpdater ausente no bundle — update automático desativado')
+      return
+    }
     if (autoUpdater.logger !== undefined) {
       autoUpdater.logger = { info: (m: string) => writeLog(`[updater] ${m}`), warn: (m: string) => writeLog(`[updater] WARN ${m}`), error: (m: string) => writeLog(`[updater] ERR ${m}`), debug: () => {} } as unknown as typeof autoUpdater.logger
     }
