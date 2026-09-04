@@ -41,6 +41,12 @@ pnpm --filter onebinary-electron run build:win
 # Abertura: prefira o Setup — o app instalado abre praticamente instantâneo.
 # O portable extrai ~260 MB para %TEMP% a cada abertura fria (pasta aleatória
 # nova por execução); compression normal minimiza esse custo.
+#
+# Boot rápido em camadas (main.ts): dist/main.js mínimo (~125 KB, harness via
+# dynamic import após o splash), V8 compile-cache em userData/compile-cache
+# (2ª abertura em diante desserializa em vez de compilar), sem --js-flags
+# (preserva os code caches de build do Electron 44). yml poda locales não
+# usados + .d.* via files/afterPack; NSIS per-user (sem UAC).
 ```
 
 ## GitHub

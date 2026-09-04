@@ -56,6 +56,10 @@ async function walkAndPrune(dir, depth = 0) {
     } else {
       if (e.name.endsWith('.map') || e.name.endsWith('.tsbuildinfo') || e.name === 'tsconfig.json' || e.name === 'tsdown.config.ts') {
         await rmIfExists(full)
+      } else if (/\.d\.(m|c)?ts$/.test(e.name)) {
+        // Tipos nunca executam — milhares de arquivos pequenos que o portable
+        // extrairia para %TEMP% a cada abertura fria.
+        await rmIfExists(full)
       } else if (e.name.endsWith('.test.js') || e.name.endsWith('.spec.js') || e.name.endsWith('.test.mjs') || e.name.endsWith('.spec.mjs')) {
         await rmIfExists(full)
       } else if (/^(CHANGELOG|HISTORY|CHANGES)([.-].*)?\.md$/i.test(e.name)) {
@@ -78,6 +82,12 @@ module.exports = async function afterPack(context) {
   for (const cand of candidates) {
     await walkAndPrune(cand)
   }
+  // App dirs (não node_modules): remove sourcemaps + tsbuildinfo que o files
+  // filter possa ter staged em drift de config. Sem outro prune aqui —
+  // apps/web/dist/preview/* embarca de propósito (surface do worker preview).
+  for (const root of [appDir, context.appOutDir]) {
+    await pruneMapsAndBuildInfo(join(root, 'apps'))
+  }
   // Deterministic boot entry: tsdown code-splits profile-boot into hashed
   // chunks (profile-boot-<hash>.js), but main.ts imports the stable path
   // apps/cli/lib/profile-boot.js. Probe the staged chunks for the runProfile
@@ -88,6 +98,20 @@ module.exports = async function afterPack(context) {
   }
   // Also prune the pnpm store's src if present via .. walk
   console.log('afterPack: done')
+}
+
+async function pruneMapsAndBuildInfo(dir, depth = 0) {
+  if (depth > 6) return
+  let entries = []
+  try { entries = await readdir(dir, { withFileTypes: true }) } catch { return }
+  for (const e of entries) {
+    const full = join(dir, e.name)
+    if (e.isDirectory()) {
+      await pruneMapsAndBuildInfo(full, depth + 1)
+    } else if (e.name.endsWith('.map') || e.name.endsWith('.tsbuildinfo')) {
+      await rmIfExists(full)
+    }
+  }
 }
 
 async function ensureStableProfileBoot(appRoot) {

@@ -8,7 +8,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
-import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import {
   getBareModuleBaseUrl,
   getDistIndex,
@@ -19,6 +18,13 @@ import { assertDshHomeExternal, resolveOneBinaryDshHome } from './shared-onebina
 
 // O perfil web é patchado para `startup` no bootHarness — HMR live desativado,
 // então --expose-internals só desotimizaria o V8 e atrasaria o boot. Removido.
+// (Também preserva os code caches de build do Electron 44: qualquer --js-flags
+// custom invalidaria o hash de flags do V8 e descartaria o cache.)
+
+// Chromium switches, não V8 flags — não tocam no flag-hash do code cache.
+// Mantêm timers/progresso do splash vivos mesmo com a janela em background.
+app.commandLine.appendSwitch('disable-background-timer-throttling')
+app.commandLine.appendSwitch('disable-renderer-backgrounding')
 
 // ---------------------------------------------------------------------------
 // Single instance + external DSH_HOME (must be before loadLayeredEnv)
@@ -96,6 +102,27 @@ function writeLog(line: string): void {
 }
 
 const BOOT_T0 = performance.now()
+
+/**
+ * Enable Node's on-disk V8 compile cache before heavy harness modules load.
+ * First boot pays compilation; later cold opens deserialize instead. Also
+ * exports NODE_COMPILE_CACHE so forked children reuse the same directory.
+ * @returns cache directory in use, or undefined when unsupported.
+ */
+async function enableCompileCacheEarly(): Promise<string | undefined> {
+  try {
+    const cacheDir = join(app.getPath('userData'), 'compile-cache')
+    process.env.NODE_COMPILE_CACHE ??= cacheDir
+    const nodeModule = await import('node:module')
+    const enable = (nodeModule as unknown as { enableCompileCache?: (dir: string) => unknown }).enableCompileCache
+    if (typeof enable !== 'function') return undefined
+    enable(cacheDir)
+    writeLog(`compile-cache on — ${cacheDir}`)
+    return cacheDir
+  } catch {
+    return undefined
+  }
+}
 
 let win: BrowserWindow | undefined
 let harnessCtx: unknown | undefined
@@ -248,6 +275,7 @@ async function createWindow(): Promise<void> {
       sandbox: true,
       webSecurity: true,
       allowRunningInsecureContent: false,
+      backgroundThrottling: false,
     },
     autoHideMenuBar: true,
   })
@@ -310,6 +338,11 @@ async function createWindow(): Promise<void> {
 async function bootHarness(): Promise<void> {
   bootPhase = 'env'
   emitProgress(5, 'Preparando ambiente', `DSH_HOME=${process.env.DSH_HOME}`)
+  // Compile cache antes de qualquer import pesado; dsh-app-boot entra via
+  // dynamic import para o esbuild emitir chunk separado — main.js inicial
+  // fica mínimo e o splash pinta antes do parse pesado.
+  await enableCompileCacheEarly()
+  const { loadLayeredEnv } = await import('@deepseek-ai/dsh-app-boot')
   let environment: ReturnType<typeof loadLayeredEnv>
   try {
     environment = loadLayeredEnv('onebinary-electron')
@@ -368,7 +401,11 @@ async function bootHarness(): Promise<void> {
   try {
     const isDev = existsSync(join(import.meta.dirname, '../../../apps/cli/src/profile-boot.ts'))
     if (isDev) {
-      const mod = await import('../../../apps/cli/src/profile-boot.ts')
+      // Specifier em variável de propósito: impede o esbuild de embutir o
+      // closure inteiro do profile-boot (~600 KB, morto no empacotado onde
+      // isDev é false) dentro do main.js. tsx resolve em runtime no dev.
+      const devBootSpecifier = '../../../apps/cli/src/profile-boot.ts'
+      const mod = await import(devBootSpecifier) as { runProfile: typeof runProfile }
       runProfile = mod.runProfile
     } else {
       const packagedBootPath = join(resourceRoot, 'apps/cli/lib/profile-boot.js')
@@ -591,13 +628,15 @@ app.whenReady().then(async () => {
       if (TMP_LOG) writeFileSync(TMP_LOG, `[${ts()}] boot start resourceRoot=${resourceRoot} installAnchor=${installAnchor}\n`, 'utf8')
     } catch {}
   } catch {}
-  // slight delay so splash paints before heavy boot blocks microtasks
+  // loadFile resolveu = splash carregado; delay curto só p/ primeiro paint.
+  // O chunk pesado (dsh-app-boot) carrega via dynamic import com I/O async,
+  // então o event loop respira durante o fetch em vez de travar o splash.
   setTimeout(() => {
     void bootHarness().catch((error: unknown) => {
       writeLog(`bootHarness catch [${bootPhase}] ${String(error)}`)
       emitError(bootPhase, error)
     })
-  }, 250)
+  }, 100)
 })
 
 /**

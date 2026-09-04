@@ -19,6 +19,20 @@ asar: false
 compression: normal
 npmRebuild: false
 removePackageScripts: true
+# Locales: só os 5 idiomas built-in do splash + base en-US. Poda ~40 .pak
+# do Chromium — menos MB e menos arquivos p/ extração fria do portable.
+electronLanguages:
+  - en-US
+  - pt-BR
+  - pt-PT
+  - es
+  - zh-CN
+  - zh-TW
+  - ru
+# No-op com asar:false; pronto p/ migração asar:true (nativos precisam ficar
+# fora do asar p/ o loader conseguir dlopen).
+asarUnpack:
+  - "**/*.node"
 # Prune de payload (src/tests/maps, test.js, CHANGELOGs, nativos de outros
 # SOs) — sem ele o portable carrega centenas de MB/arqs mortos e cada
 # abertura fria paga a extração deles para %TEMP%.
@@ -28,6 +42,9 @@ afterPack: build/afterPack.cjs
 # deleteAppDataOnUninstall=false preserva DSH_HOME/sessões no uninstall.
 nsis:
   oneClick: false
+  # per-user: sem prompt UAC e sem escrita em Program Files = install mais rápido.
+  perMachine: false
+  differentialPackage: true
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
   shortcutName: DeepMod
@@ -66,6 +83,9 @@ files:
 
   # Exclude bloat — keep runtime JS even when it lives in a `src` folder (koffi, debug, sdk-logs)
   - "!**/*.ts"
+  - "!**/*.d.ts"
+  - "!**/*.d.mts"
+  - "!**/*.d.cts"
   - "!**/*.map"
   - "!**/*.tsbuildinfo"
   - "!node_modules/**/*.ts"
