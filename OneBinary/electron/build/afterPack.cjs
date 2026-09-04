@@ -46,7 +46,11 @@ async function walkAndPrune(dir, depth = 0) {
   for (const e of entries) {
     const full = join(dir, e.name)
     if (e.isDirectory()) {
-      if (e.name === 'src' || e.name === 'tests' || e.name === '__tests__') {
+      // NUNCA podar `src`: pacotes publicados têm entry points em src/
+      // (debug@4 main=./src/index.js, sdk-logs main=build/src/index.js).
+      // O files-filter do yml já exclui *.ts, então src staged só tem JS
+      // de runtime — podar quebra o boot empacotado. Só tests são seguros.
+      if (e.name === 'tests' || e.name === '__tests__') {
         if (await rmIfExists(full)) console.log(`afterPack: pruned ${full}`)
       } else if (isForeignPrebuild(e.name) || isForeignScopedNative(e.name)) {
         if (await rmIfExists(full)) console.log(`afterPack: pruned foreign native ${full}`)
