@@ -1,0 +1,7 @@
+# OneBinary Electron overlay, applied via runProfile patchFiles in
+# OneBinary/electron/src/main.ts. The app window IS the browser, so the
+# default-browser handoff must not fire (it would pop a stray system-browser
+# tab on every boot). The URL line stays on: it remains useful diagnostics.
+- id: web-runtime
+  config:
+    openBrowser: false

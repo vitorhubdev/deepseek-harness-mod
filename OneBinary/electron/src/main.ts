@@ -470,8 +470,17 @@ async function bootHarness(): Promise<void> {
   }, 650)
 
   let ctx: Awaited<ReturnType<typeof runProfile>>['ctx'] | undefined
+  // Overlay OneBinary: a janela do app JÁ é o browser — desliga o handoff
+  // externo (sem isso cada boot abriria uma aba avulsa no navegador padrão).
+  // Caminho relativo a este módulo: src/../assets no dev, dist/../assets
+  // no empacotado. Ausência vira warn, nunca falha de boot.
+  const onebinaryPatch = join(import.meta.dirname, '..', 'assets', 'onebinary.patch.yml')
+  const patchFiles = existsSync(onebinaryPatch) ? [onebinaryPatch] : []
+  if (patchFiles.length === 0) {
+    writeLog('WARN onebinary.patch.yml ausente — handoff de browser externo permanece ativo')
+  }
   try {
-    const result = await runProfile({ environment, profile: 'web', patchFiles: [], args: [] })
+    const result = await runProfile({ environment, profile: 'web', patchFiles, args: [] })
     ctx = result.ctx
     harnessShutdown = result.shutdown
     harnessCtx = ctx as unknown

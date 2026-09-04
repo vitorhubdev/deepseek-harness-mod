@@ -376,6 +376,9 @@ describe('web-app runtime glue', () => {
     expect(options?.env).not.toHaveProperty('DEEPSEEK_API_KEY')
     expect(options?.env).not.toHaveProperty('DSH_HOME')
     expect(options?.env?.PATH).toBe(process.env.PATH)
+    // An Electron-packaged host shares process.execPath with the app: the
+    // child must run as plain Node, never boot a second app window.
+    expect(options?.env).toHaveProperty('ELECTRON_RUN_AS_NODE', '1')
     expect(options?.stdio).toEqual(['ignore', 'inherit', 'pipe'])
     completed.emit('close', 0)
     await expect(completion).resolves.toBeUndefined()

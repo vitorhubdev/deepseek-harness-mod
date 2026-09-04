@@ -185,7 +185,13 @@ function spawnBrowserLauncher(url: string): ChildProcess {
     '--eval', BROWSER_OPENER_PROGRAM,
     '--', url,
   ], {
-    env: scrubbedParentEnv(),
+    env: {
+      ...scrubbedParentEnv(),
+      // Packaged Electron hosts share process.execPath with the app itself:
+      // without run-as-node the child boots a second app window instead of
+      // running this opener script. Plain Node ignores the flag.
+      ELECTRON_RUN_AS_NODE: '1',
+    },
     stdio: ['ignore', 'inherit', 'pipe'],
   })
 }
