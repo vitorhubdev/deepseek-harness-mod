@@ -50,7 +50,7 @@ async function walkAndPrune(dir, depth = 0) {
       // (debug@4 main=./src/index.js, sdk-logs main=build/src/index.js).
       // O files-filter do yml já exclui *.ts, então src staged só tem JS
       // de runtime — podar quebra o boot empacotado. Só tests são seguros.
-      if (e.name === 'tests' || e.name === '__tests__') {
+      if (e.name === 'tests' || e.name === '__tests__' || e.name === 'docs' || e.name === 'example' || e.name === 'examples') {
         if (await rmIfExists(full)) console.log(`afterPack: pruned ${full}`)
       } else if (isForeignPrebuild(e.name) || isForeignScopedNative(e.name)) {
         if (await rmIfExists(full)) console.log(`afterPack: pruned foreign native ${full}`)
@@ -66,7 +66,7 @@ async function walkAndPrune(dir, depth = 0) {
         await rmIfExists(full)
       } else if (e.name.endsWith('.test.js') || e.name.endsWith('.spec.js') || e.name.endsWith('.test.mjs') || e.name.endsWith('.spec.mjs')) {
         await rmIfExists(full)
-      } else if (/^(CHANGELOG|HISTORY|CHANGES)([.-].*)?\.md$/i.test(e.name)) {
+      } else if (/^(CHANGELOG|HISTORY|CHANGES|README|LICENSE|LICENCE|NOTICE|AUTHORS)([.-].*)?$/i.test(e.name)) {
         await rmIfExists(full)
       }
     }

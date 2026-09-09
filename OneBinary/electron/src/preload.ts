@@ -52,7 +52,13 @@ contextBridge.exposeInMainWorld('onebinary', {
     return () => ipcRenderer.off('onebinary:error', handler)
   },
   onLogLine: (cb: (line: string) => void) => {
-    const handler = (_: unknown, line: string) => cb(line)
+    const handler = (_: unknown, payload: string | string[]) => {
+      if (Array.isArray(payload)) {
+        for (const line of payload) cb(line)
+      } else {
+        cb(payload)
+      }
+    }
     ipcRenderer.on('onebinary:log', handler)
     return () => ipcRenderer.off('onebinary:log', handler)
   },

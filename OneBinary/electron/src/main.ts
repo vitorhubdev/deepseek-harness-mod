@@ -6,6 +6,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { enableCompileCache } from 'node:module'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
 import {
@@ -25,6 +26,13 @@ import { assertDshHomeExternal, resolveOneBinaryDshHome } from './shared-onebina
 // Mantêm timers/progresso do splash vivos mesmo com a janela em background.
 app.commandLine.appendSwitch('disable-background-timer-throttling')
 app.commandLine.appendSwitch('disable-renderer-backgrounding')
+// Startup: skip background Chromium services that do not serve the local UI.
+app.commandLine.appendSwitch('disable-background-networking')
+app.commandLine.appendSwitch('disable-component-update')
+app.commandLine.appendSwitch('disable-domain-reliability')
+app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion,IntensiveWakeUpThrottling,BackForwardCache')
+app.commandLine.appendSwitch('disable-hang-monitor')
+app.commandLine.appendSwitch('no-pings')
 
 // ---------------------------------------------------------------------------
 // Single instance + external DSH_HOME (must be before loadLayeredEnv)
@@ -102,6 +110,21 @@ function ts(): string {
   return new Date().toISOString()
 }
 
+let pendingRendererLogs: string[] = []
+let rendererLogFlush: ReturnType<typeof setTimeout> | undefined
+
+function flushRendererLogs(): void {
+  rendererLogFlush = undefined
+  if (pendingRendererLogs.length === 0) return
+  const batch = pendingRendererLogs
+  pendingRendererLogs = []
+  if (win && !win.isDestroyed()) {
+    try {
+      win.webContents.send('onebinary:log', batch)
+    } catch {}
+  }
+}
+
 function writeLog(line: string): void {
   // PID em cada linha: permite separar inicializações concorrentes
   // (segunda instância, relaunch) no mesmo arquivo de log.
@@ -112,11 +135,8 @@ function writeLog(line: string): void {
   try {
     appendFileSync(TMP_LOG, entry)
   } catch {}
-  if (win && !win.isDestroyed()) {
-    try {
-      win.webContents.send('onebinary:log', line)
-    } catch {}
-  }
+  pendingRendererLogs.push(line)
+  if (rendererLogFlush === undefined) rendererLogFlush = setTimeout(flushRendererLogs, 80)
 }
 
 const BOOT_T0 = performance.now()
@@ -127,14 +147,11 @@ const BOOT_T0 = performance.now()
  * exports NODE_COMPILE_CACHE so forked children reuse the same directory.
  * @returns cache directory in use, or undefined when unsupported.
  */
-async function enableCompileCacheEarly(): Promise<string | undefined> {
+function enableCompileCacheEarly(): string | undefined {
   try {
     const cacheDir = join(app.getPath('userData'), 'compile-cache')
     process.env.NODE_COMPILE_CACHE ??= cacheDir
-    const nodeModule = await import('node:module')
-    const enable = (nodeModule as unknown as { enableCompileCache?: (dir: string) => unknown }).enableCompileCache
-    if (typeof enable !== 'function') return undefined
-    enable(cacheDir)
+    enableCompileCache(cacheDir)
     writeLog(`compile-cache on — ${cacheDir}`)
     return cacheDir
   } catch {
@@ -307,28 +324,6 @@ async function createWindow(): Promise<void> {
   const created = win
   created.once('closed', () => { if (win === created) win = undefined })
 
-  const template: Electron.MenuItemConstructorOptions[] = [
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload', label: 'Recarregar splash' },
-        { role: 'forceReload', label: 'Forçar recarregar' },
-        { role: 'toggleDevTools', label: 'DevTools', accelerator: 'F12' },
-        { type: 'separator' },
-        { label: 'Abrir pasta de logs', click: () => void shell.openPath(LOG_DIR) },
-        { label: 'Copiar log', click: async () => {
-          try {
-            const { clipboard } = await import('electron')
-            clipboard.writeText(readFileSync(LOG_FILE, 'utf8').slice(-20000))
-          } catch {}
-        }},
-        { type: 'separator' },
-        { role: 'quit', label: 'Sair' },
-      ],
-    },
-  ]
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-
   win.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url)
     return { action: 'deny' }
@@ -354,6 +349,29 @@ async function createWindow(): Promise<void> {
 
   const splashPath = join(import.meta.dirname, '../assets/splash.html')
   writeLog(`Criando janela — splash=${splashPath} exists=${existsSync(splashPath)} isPackaged=${app.isPackaged}`)
+  created.webContents.once('did-finish-load', () => {
+    const template: Electron.MenuItemConstructorOptions[] = [
+      {
+        label: 'View',
+        submenu: [
+          { role: 'reload', label: 'Recarregar splash' },
+          { role: 'forceReload', label: 'Forçar recarregar' },
+          { role: 'toggleDevTools', label: 'DevTools', accelerator: 'F12' },
+          { type: 'separator' },
+          { label: 'Abrir pasta de logs', click: () => void shell.openPath(LOG_DIR) },
+          { label: 'Copiar log', click: async () => {
+            try {
+              const { clipboard } = await import('electron')
+              clipboard.writeText(readFileSync(LOG_FILE, 'utf8').slice(-20000))
+            } catch {}
+          }},
+          { type: 'separator' },
+          { role: 'quit', label: 'Sair' },
+        ],
+      },
+    ]
+    Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  })
   if (existsSync(splashPath)) {
     try {
       await win.loadFile(splashPath)
@@ -381,7 +399,7 @@ async function bootHarness(): Promise<void> {
   // Compile cache antes de qualquer import pesado; dsh-app-boot entra via
   // dynamic import para o esbuild emitir chunk separado — main.js inicial
   // fica mínimo e o splash pinta antes do parse pesado.
-  await enableCompileCacheEarly()
+  enableCompileCacheEarly()
   const { loadLayeredEnv } = await import('@deepseek-ai/dsh-app-boot')
   let environment: ReturnType<typeof loadLayeredEnv>
   try {
@@ -510,16 +528,14 @@ async function bootHarness(): Promise<void> {
     }
   }
 
-  // Emit plugin counts every 400ms until stable or 6s
-  for (let i = 0; i < 15; i += 1) {
+  for (let i = 0; i < 10; i += 1) {
     const { loaded, total, pending } = getCounts()
     const pct = Math.min(86, 70 + Math.floor((loaded / Math.max(1, total)) * 14) + i)
     const detail = total > 0 ? (pending.length > 0 ? `pendentes: ${pending.join(', ')}` : `${loaded}/${total} ativos`) : 'aguardando Loader…'
     emitProgress(pct, 'Ativando plugins', detail, loaded, total)
     if (total > 0 && loaded >= total) break
-    // also log that we are still waiting — user sees bar mexendo
-    if (Date.now() - pollStart > 6500) break
-    await new Promise<void>(r => setTimeout(r, 400))
+    if (Date.now() - pollStart > 2500) break
+    await new Promise<void>(r => setTimeout(r, 150))
   }
 
   emitProgress(88, 'Iniciando servidor web', 'webRuntime em 127.0.0.1')
@@ -588,18 +604,16 @@ async function bootHarness(): Promise<void> {
   if (maybeAppReady) {
     writeLog('AppReady encontrado — aguardando onReady')
     unsubscribeReady = maybeAppReady.onReady(() => void tryNavigate())
-    // safety: if onReady never fires, poll
-    navTimer = setTimeout(() => void tryNavigate(), 2500)
+    navTimer = setTimeout(() => void tryNavigate(), 800)
   } else {
-    writeLog('AppReady ausente — polling webRuntime em 1.5s')
-    navTimer = setTimeout(() => void tryNavigate(), 1500)
-    // keep trying up to 12s caso o servidor suba devagar
+    writeLog('AppReady ausente — polling webRuntime em 400ms')
+    navTimer = setTimeout(() => void tryNavigate(), 400)
     let attempts = 0
     navInterval = setInterval(() => {
       attempts += 1
-      if (attempts > 6) cancelNavigationRetries()
+      if (attempts > 12) cancelNavigationRetries()
       void tryNavigate()
-    }, 2000)
+    }, 400)
   }
 
   // Graceful shutdown joins the CLI's bounded ProcessShutdown: the first
@@ -677,26 +691,25 @@ async function setupAutoUpdate(): Promise<void> {
 
 app.whenReady().then(async () => {
   initPathsAndEnv()
+  enableCompileCacheEarly()
   writeLog(`DeepMod ${app.getVersion()} iniciado — Electron ${process.versions.electron} Node ${process.versions.node} — isPackaged=${app.isPackaged} resourcesPath=${(process as unknown as { resourcesPath?: string }).resourcesPath ?? 'n/a'} — ${STARTUP_SELF_REPORT}`)
   await createWindow()
-  void setupAutoUpdate()
-  // initial progress so bar não fica parada
+  setTimeout(() => { void setupAutoUpdate() }, 12_000)
   emitProgress(2, 'Janela criada', 'inicializando logs')
   try {
-    // also dump for external tail
-    try {
-      if (TMP_LOG) writeFileSync(TMP_LOG, `[${ts()}] boot start resourceRoot=${resourceRoot} installAnchor=${installAnchor}\n`, 'utf8')
-    } catch {}
+    if (TMP_LOG) writeFileSync(TMP_LOG, `[${ts()}] boot start resourceRoot=${resourceRoot} installAnchor=${installAnchor}\n`, 'utf8')
   } catch {}
-  // loadFile resolveu = splash carregado; delay curto só p/ primeiro paint.
-  // O chunk pesado (dsh-app-boot) carrega via dynamic import com I/O async,
-  // então o event loop respira durante o fetch em vez de travar o splash.
-  setTimeout(() => {
+  const startBoot = (): void => {
     void bootHarness().catch((error: unknown) => {
       writeLog(`bootHarness catch [${bootPhase}] ${String(error)}`)
       emitError(bootPhase, error)
     })
-  }, 100)
+  }
+  if (win && !win.isDestroyed() && win.webContents.isLoading()) {
+    win.webContents.once('did-finish-load', startBoot)
+  } else {
+    startBoot()
+  }
 })
 
 /**

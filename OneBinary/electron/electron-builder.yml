@@ -49,6 +49,8 @@ nsis:
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
   shortcutName: DeepMod
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
 portable:
   requestExecutionLevel: user
 
@@ -92,10 +94,15 @@ files:
   - "!node_modules/**/*.ts"
   - "!node_modules/**/*.map"
   - "!node_modules/**/README.*"
+  - "!node_modules/**/LICENSE*"
+  - "!node_modules/**/CHANGELOG*"
   - "!node_modules/**/tsconfig.json"
   - "!node_modules/**/tsdown.config.ts"
   - "!node_modules/**/__tests__/**/*"
   - "!node_modules/**/tests/**/*"
+  - "!node_modules/**/docs/**"
+  - "!node_modules/**/example/**"
+  - "!node_modules/**/examples/**"
 
 # Linux Landlock bins from native/system. beforePack.cjs creates empty dirs
 # when this host has no Linux platform package so Windows pack still succeeds.

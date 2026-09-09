@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-09-onebinary-fast-cold-open.md
+2026-09-09-onebinary-fast-cold-open.md: 6bae751e58d8a758ddd40e5bd46a66f0cf12289a
+2026-09-09-onebinary-fast-cold-open.zh.md: eefd38df77224bd3892775fb1962eee0fe93b222

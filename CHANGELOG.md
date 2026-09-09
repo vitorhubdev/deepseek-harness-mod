@@ -2,6 +2,16 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.29] - 2026-09-09 — Abertura fria e boot mais rápidos
+
+### Changed
+- Splash pinta e o harness só começa depois do `did-finish-load`; compile-cache V8 liga no `ready`, não depois.
+- Logs do splash vão em lote (80 ms) em vez de um IPC/DOM por linha durante o load dos plugins.
+- Chromium inicia sem networking/component-update/hang-monitor de fundo (sem `--js-flags`, para não invalidar o code cache).
+- Menu da janela e auto-updater saem do caminho crítico; navegação para a UI local tenta em 400–800 ms em vez de 1.5–2.5 s.
+- Pack: menos arquivos em `node_modules` (docs/examples/LICENSE/README) — extração do portable para `%TEMP%` tem menos inodes.
+- NSIS cria atalho na área de trabalho: o instalado não re-extrai na abertura.
+
 ## [1.0.28] - 2026-09-09 — Release GitHub: attach único + native/system
 
 ### Fixed
