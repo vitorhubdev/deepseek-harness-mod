@@ -27,9 +27,11 @@ on:
 permissions:
   contents: read
 
+# A tag push and the later `release` event share refs/tags/v*. Cancelling the
+# release run dropped attach. Push/PR still cancel superseded builds.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'release' && format('release-{0}', github.event.release.tag_name) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'release' }}
 
 env:
   PRIMARY_NODE_VERSION: '24'
@@ -122,17 +124,28 @@ jobs:
         with:
           path: ./release-artifacts
           merge-multiple: true
-      - name: Attach executables to GitHub Release (Win/Linux/macOS, x64/x86/universal)
+      # Overlapping globs (`DeepMod *` plus `*.exe`) uploaded the same Windows
+      # files twice; GitHub then 404'd on asset label PATCH and failed attach.
+      - name: Deduplicate artifacts by basename
+        run: |
+          set -euo pipefail
+          mkdir -p unique
+          find ./release-artifacts -type f \
+            \( -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' \
+               -o -name '*.dmg' -o -name '*.zip' -o -name '*.yml' \
+               -o -name '*.blockmap' \) \
+            ! -name 'builder-debug.yml' -print0 \
+          | while IFS= read -r -d '' f; do
+              dest="unique/$(basename "$f")"
+              if [ ! -e "$dest" ]; then cp "$f" "$dest"; fi
+            done
+          echo "Unique release files:"
+          ls -la unique
+          test "$(find unique -type f | wc -l)" -ge 6
+      - name: Attach executables to GitHub Release (Win/Linux/macOS)
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            ./release-artifacts/DeepMod *
-            ./release-artifacts/*.exe
-            ./release-artifacts/*.AppImage
-            ./release-artifacts/*.deb
-            ./release-artifacts/*.dmg
-            ./release-artifacts/*.zip
-            ./release-artifacts/*.yml
-            ./release-artifacts/*.blockmap
-          fail_on_unmatched_files: false
+          files: unique/*
+          fail_on_unmatched_files: true
+          overwrite_files: true
           generate_release_notes: true

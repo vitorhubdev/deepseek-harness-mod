@@ -2,6 +2,14 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.28] - 2026-09-09 — Release GitHub: attach único + native/system
+
+### Fixed
+- **release-attach** — globs `DeepMod *` e `*.exe` enviavam o mesmo `.exe` duas vezes; o GitHub 404 em `update-a-release-asset` e o job falhava mesmo com Win/Linux/mac compilados. Agora os artefatos são deduplicados por basename antes do upload.
+- **concurrency** — o evento `release` deixou de ser cancelado pelo push da tag (`refs/tags/v*`).
+- **extraResources** — `native/landlock-run` (apagado no merge 0.1.5) apontava para um diretório inexistente e quebrava o pack no Windows. Passa a `native/system` com `beforePack` que cria dirs vazios quando o host não tem o pacote Linux.
+- OneBinary declara os pacotes 0.1.5 que o electron-builder não puxa por transitividade pnpm (Session V3, sidebar direita, upload, http-proxy, node-addon-system).
+
 ## [1.0.27] - 2026-09-09 — Merge oficial `dsh-v0.1.5-alpha.1` (preserva DeepMod)
 
 ### Changed
