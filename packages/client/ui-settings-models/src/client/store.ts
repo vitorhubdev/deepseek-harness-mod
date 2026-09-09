@@ -271,24 +271,33 @@ export type OnboardingReadiness =
   | { kind: 'loading' }
   | { kind: 'adapter-absent' }
   | { kind: 'provider-ready' }
-  | { kind: 'credential-missing' }
+  | { kind: 'choose-provider' }
   | {
     kind: 'unavailable'
     reason:
       | 'load-failed'
-      | 'provider-inactive'
       | 'credentials-unavailable'
       | 'settings-read-only'
-      | 'credential-read-only'
   }
+
+/**
+ * Directory rows the first-run picker can adopt: each has a settings address
+ * and cannot yet serve requests. Official DeepSeek is one of these when its
+ * key is missing; it is not a required choice.
+ * @param state - current shared Models join snapshot.
+ * @returns choosable rows in directory order.
+ */
+export function onboardingChoices(state: ModelsSettingsState): ProviderRow[] {
+  return state.rows.filter(row => row.entry.settingsNs !== '' && !providerUsable(row))
+}
 
 /**
  * Project first-run readiness from the provider/settings/credential join used
  * by the Models page. The step exists to leave the user with a model to talk
- * to, so ANY usable provider ends it; only when none exists does the official
- * DeepSeek route — the one route the prompt can offer a key field for — decide
- * whether prompting can help. A missing official configurable-provider
- * declaration means the adapter is not repairable by navigating to Models.
+ * to, so ANY usable provider ends it. When none exists, the prompt offers
+ * every configurable directory row plus a hand-declared custom route — never
+ * a DeepSeek-only key field. A join with no configurable address and no
+ * `llm-pi-ai` namespace cannot be repaired here.
  * @param state - current shared Models join snapshot.
  * @returns the onboarding state without reading a parallel fact source.
  */
@@ -303,36 +312,19 @@ export function onboardingReadiness(state: ModelsSettingsState): OnboardingReadi
     }
   }
   if (state.rows.some(providerUsable)) return { kind: 'provider-ready' }
-  const row = state.rows.find(candidate =>
-    candidate.entry.provider === 'deepseek-official'
-    && candidate.entry.settingsNs === 'llm-deepseek'
-    && candidate.entry.settingsPath.length === 0)
-  if (row === undefined) return { kind: 'adapter-absent' }
-  if (!row.entry.active) {
-    return {
-      kind: 'unavailable',
-      reason: 'provider-inactive',
-    }
-  }
-  // Past the usable gate an active route names a reference it has no stored
-  // credential for, so the remaining questions are all about that credential.
-  if (state.credentialError !== null || row.credential === undefined) {
-    return {
-      kind: 'unavailable',
-      reason: 'credentials-unavailable',
-    }
-  }
   if (!state.writable) {
     return {
       kind: 'unavailable',
       reason: 'settings-read-only',
     }
   }
-  if (!row.credential.writable) {
+  if (state.credentialError !== null) {
     return {
       kind: 'unavailable',
-      reason: 'credential-read-only',
+      reason: 'credentials-unavailable',
     }
   }
-  return { kind: 'credential-missing' }
+  const canCustom = state.namespaces.has('llm-pi-ai')
+  if (onboardingChoices(state).length === 0 && !canCustom) return { kind: 'adapter-absent' }
+  return { kind: 'choose-provider' }
 }

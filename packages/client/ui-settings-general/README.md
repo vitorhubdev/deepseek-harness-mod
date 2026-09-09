@@ -76,7 +76,7 @@ These pages cover the settings surface family and the composition model.
 
 - [ui-settings](../ui-settings/README.md) — the domain base whose slot types and scope service this shell builds on.
 - [ui-sidebar](../ui-sidebar/README.md) — the sidebar shell hosting the `sidebar.settings` seat.
-- [ui-settings-models](../ui-settings-models/README.md) — the feature package contributing the DeepSeek onboarding step.
+- [ui-settings-models](../ui-settings-models/README.md) — the feature package contributing the first-run provider onboarding step.
 - [settings](../../settings/README.md) — the durable user-settings seam and its file provider.
 - [Slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md) — the composition model behind the ledgers.
 

@@ -5,12 +5,109 @@
   color: var(--dsw-alias-label-secondary);
 }
 
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 36px;
+  margin-top: 16px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  background: var(--dsw-alias-bg-layer-1);
+  color: var(--dsw-alias-label-primary);
+}
+
+.search:focus {
+  outline: none;
+  border-color: var(--dsw-alias-brand-primary);
+}
+
+.search::placeholder {
+  color: var(--dsw-alias-label-dimmed);
+}
+
+.list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(360px, 50vh);
+  overflow-y: auto;
+}
+
+.choice {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.choice:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.empty {
+  margin: 0;
+  padding: 8px 4px;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+.later {
+  box-sizing: border-box;
+  height: 36px;
+  padding: 0 14px;
+  border: 0.5px solid var(--dsw-alias-border-l3);
+  border-radius: 18px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.later:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.later:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
 .editor {
-  margin-top: 24px;
+  margin-top: 8px;
 }
 
 @media (max-width: 560px) {
   .editor {
-    margin-top: 20px;
+    margin-top: 4px;
   }
 }

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CredentialInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type { ModelsSettingsState, ProviderRow } from '../src/client/store.ts'
-import { onboardingReadiness, providerUsable } from '../src/client/store.ts'
+import { onboardingChoices, onboardingReadiness, providerUsable } from '../src/client/store.ts'
 
 const missingCredential: CredentialInfo = { configured: false, writable: true }
 
@@ -81,8 +81,9 @@ describe('onboardingReadiness', () => {
     }))).toEqual({ kind: 'adapter-absent' })
   })
 
-  it('reports a missing writable effective credential', () => {
-    expect(onboardingReadiness(state())).toEqual({ kind: 'credential-missing' })
+  it('offers every unfinished directory row, not a DeepSeek-only key step', () => {
+    expect(onboardingReadiness(state())).toEqual({ kind: 'choose-provider' })
+    expect(onboardingChoices(state()).map(candidate => candidate.entry.provider)).toEqual(['deepseek-official'])
   })
 
   it('ends onboarding once any other registered provider can serve requests', () => {
@@ -90,7 +91,10 @@ describe('onboardingReadiness', () => {
     // A provider the user cannot reach yet leaves the prompt in place.
     expect(onboardingReadiness(state({
       rows: [row(), otherRow({ credential: missingCredential })],
-    }))).toEqual({ kind: 'credential-missing' })
+    }))).toEqual({ kind: 'choose-provider' })
+    expect(onboardingChoices(state({
+      rows: [row(), otherRow({ credential: missingCredential })],
+    })).map(candidate => candidate.entry.provider)).toEqual(['deepseek-official', 'hfai'])
   })
 
   it('accepts file and process-environment credentials without prompting', () => {
@@ -108,23 +112,43 @@ describe('onboardingReadiness', () => {
       reason: 'load-failed',
     })
     expect(onboardingReadiness(state({
-      rows: [row({ entry: { ...row().entry, active: false } })],
-    }))).toEqual({ kind: 'unavailable', reason: 'provider-inactive' })
-    expect(onboardingReadiness(state({
       credentialError: 'credentials service is absent',
     }))).toEqual({
       kind: 'unavailable',
       reason: 'credentials-unavailable',
     })
-    expect(onboardingReadiness(state({
-      rows: [row({ credential: undefined })],
-    }))).toEqual({ kind: 'unavailable', reason: 'credentials-unavailable' })
-    expect(onboardingReadiness(state({
-      rows: [row({ credential: { configured: false, writable: false } })],
-    }))).toEqual({ kind: 'unavailable', reason: 'credential-read-only' })
     expect(onboardingReadiness(state({ writable: false }))).toEqual({
       kind: 'unavailable',
       reason: 'settings-read-only',
     })
+  })
+
+  it('still offers the picker when official DeepSeek is inactive or its key is locked', () => {
+    expect(onboardingReadiness(state({
+      rows: [row({ entry: { ...row().entry, active: false } })],
+    }))).toEqual({ kind: 'choose-provider' })
+    expect(onboardingReadiness(state({
+      rows: [row({ credential: undefined })],
+    }))).toEqual({ kind: 'choose-provider' })
+    expect(onboardingReadiness(state({
+      rows: [row({ credential: { configured: false, writable: false } })],
+    }))).toEqual({ kind: 'choose-provider' })
+  })
+
+  it('offers a custom route when the directory has no unfinished rows but pi-ai is mounted', () => {
+    const namespaces = new Map([
+      ['llm-pi-ai', {
+        ns: 'llm-pi-ai',
+        schema: {},
+        value: {},
+        base: {},
+        user: {},
+        applies: 'live' as const,
+        secrets: [],
+        revision: 0,
+      }],
+    ])
+    expect(onboardingReadiness(state({ rows: [], namespaces }))).toEqual({ kind: 'choose-provider' })
+    expect(onboardingChoices(state({ rows: [], namespaces }))).toEqual([])
   })
 })

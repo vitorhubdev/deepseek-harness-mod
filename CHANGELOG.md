@@ -2,6 +2,12 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.30] - 2026-09-09 — Onboarding escolhe provedor, DeepSeek opcional
+
+### Changed
+- Primeira execução mostra um seletor pesquisável de provedores (catálogo + provedor customizado). A key oficial DeepSeek deixa de ser obrigatória.
+- “Configurar depois” continua disponível; qualquer provedor já utilizável encerra o passo.
+
 ## [1.0.29] - 2026-09-09 — Abertura fria e boot mais rápidos
 
 ### Changed

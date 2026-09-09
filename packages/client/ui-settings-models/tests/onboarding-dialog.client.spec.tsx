@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-/** First-run DeepSeek prompt behavior over the shared Models join. */
+/** First-run provider-picker behavior over the shared Models join. */
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -62,6 +62,31 @@ function deepSeekNamespace(apiKeyEnv: string | null): SettingsNamespaceView {
   }
 }
 
+const PiAiConfig = Schema.object({
+  providers: Schema.dict(Schema.object({
+    apiKeyEnv: Schema.string().role('credential-ref'),
+    displayName: Schema.string(),
+    api: Schema.union(['openai-completions']),
+    baseURL: Schema.string(),
+    models: Schema.array(Schema.object({
+      id: Schema.string().required(),
+    })),
+  })),
+})
+
+function piAiNamespace(): SettingsNamespaceView {
+  return {
+    ns: 'llm-pi-ai',
+    schema: JSON.parse(JSON.stringify(PiAiConfig.toJSON())) as JsonValue,
+    value: { providers: {} },
+    base: { providers: {} },
+    user: {},
+    applies: 'live',
+    secrets: [],
+    revision: 0,
+  }
+}
+
 function harness(options: {
   provider?: boolean
   providerSettingsNs?: string
@@ -74,6 +99,8 @@ function harness(options: {
   settingsWritable?: boolean
   providersFailure?: string
   setFailure?: string
+  extraProviders?: boolean
+  withCustom?: boolean
 } = {}) {
   if (document.getElementById('root') === null) {
     const appRoot = document.createElement('div')
@@ -96,18 +123,31 @@ function harness(options: {
         return Promise.resolve(remoteOk(
           options.provider === false || options.providerActive === false
             ? []
-            : [{ id: 'deepseek-official', name: 'DeepSeek' }],
+            : [
+              { id: 'deepseek-official', name: 'DeepSeek' },
+              ...options.extraProviders === true ? [{ id: 'openai', name: 'OpenAI' }] : [],
+            ],
         ))
       },
       listConfigurableProviders: () => Promise.resolve(remoteOk(
         options.provider === false
           ? []
-          : [{
-            provider: 'deepseek-official',
-            displayName: 'DeepSeek',
-            settingsNs: options.providerSettingsNs ?? 'llm-deepseek',
-            settingsPath: [],
-          }],
+          : [
+            {
+              provider: 'deepseek-official',
+              displayName: 'DeepSeek',
+              settingsNs: options.providerSettingsNs ?? 'llm-deepseek',
+              settingsPath: [],
+            },
+            ...options.extraProviders === true
+              ? [{
+                provider: 'openai',
+                displayName: 'OpenAI',
+                settingsNs: 'llm-openai',
+                settingsPath: [] as string[],
+              }]
+              : [],
+          ],
       )),
       discoverModels: () => Promise.resolve(remoteOk([])),
     },
@@ -115,7 +155,16 @@ function harness(options: {
       describe: () => Promise.resolve(remoteOk({
         writable: options.settingsWritable ?? true,
         hasDocument: false,
-        namespaces: options.settingsNamespace === false ? [] : [deepSeekNamespace(apiKeyEnv)],
+        namespaces: options.settingsNamespace === false
+          ? []
+          : [
+            deepSeekNamespace(apiKeyEnv),
+            ...options.extraProviders === true ? [deepSeekNamespace('OPENAI_API_KEY')].map(view => ({
+              ...view,
+              ns: 'llm-openai',
+            })) : [],
+            ...options.withCustom === true ? [piAiNamespace()] : [],
+          ],
       })),
       mutate,
     },
@@ -129,6 +178,14 @@ function harness(options: {
               : {},
             writable: options.credential?.writable ?? true,
           },
+          ...options.extraProviders === true
+            ? {
+              OPENAI_API_KEY: {
+                configured: false,
+                writable: true,
+              },
+            }
+            : {},
         }))
         : Promise.resolve(remoteFail(options.describeFailure)),
       set,
@@ -169,15 +226,16 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
   })
 
-  it('loads a credential-only modal, inerts the product, and focuses the key', async () => {
-    const h = harness()
+  it('loads a provider picker, inerts the product, and does not require a DeepSeek key', async () => {
+    const h = harness({ extraProviders: true })
     render(<DeepSeekOnboardingDialog {...h.props} />)
     expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
     expect(document.getElementById('root')?.inert).toBe(true)
     expect(screen.getByText(en.onboardingDescription)).toBeTruthy()
-    const key = screen.getByLabelText<HTMLInputElement>(en.keyInput)
-    await waitFor(() => { expect(document.activeElement).toBe(key) })
-    expect(screen.queryByText(en.customized)).toBeNull()
+    expect(screen.getByRole('button', { name: 'DeepSeek' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'OpenAI' })).toBeTruthy()
+    expect(screen.queryByLabelText(en.keyInput)).toBeNull()
+    expect(screen.getByLabelText(en.onboardingSearch)).toBeTruthy()
   })
 
   it('cannot be dismissed implicitly and restores the previous inert state', async () => {
@@ -196,16 +254,33 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(appRoot.inert).toBe(true)
   })
 
-  it('requires a non-blank key before Save and continue is available', async () => {
+  it('filters the picker and reports when nothing matches', async () => {
+    const h = harness({ extraProviders: true })
+    render(<DeepSeekOnboardingDialog {...h.props} />)
+    await screen.findByRole('dialog')
+    fireEvent.change(screen.getByLabelText(en.onboardingSearch), { target: { value: 'open' } })
+    expect(screen.getByRole('button', { name: 'OpenAI' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'DeepSeek' })).toBeNull()
+    fireEvent.change(screen.getByLabelText(en.onboardingSearch), { target: { value: 'zzzz' } })
+    expect(screen.getByText(en.onboardingEmpty)).toBeTruthy()
+  })
+
+  it('opens the chosen provider editor, requires its key, and returns to the picker', async () => {
     const h = harness()
     render(<DeepSeekOnboardingDialog {...h.props} />)
     await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+    const key = await screen.findByLabelText<HTMLInputElement>(en.keyInput)
+    await waitFor(() => { expect(document.activeElement).toBe(key) })
     const save = screen.getByRole<HTMLButtonElement>('button', { name: en.onboardingSave })
     expect(save.disabled).toBe(true)
-    fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: '   ' } })
+    fireEvent.change(key, { target: { value: '   ' } })
     expect(save.disabled).toBe(true)
     expect(screen.getByText(en.keyRequired)).toBeTruthy()
     expect(h.set).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: en.onboardingBack }))
+    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'DeepSeek' })).toBeTruthy()
   })
 
   it('keeps the modal open and reports a refused credential write', async () => {
@@ -215,7 +290,8 @@ describe('DeepSeekOnboardingDialog', () => {
       const h = harness(options)
       const view = render(<DeepSeekOnboardingDialog {...h.props} />)
       await screen.findByRole('dialog')
-      fireEvent.change(screen.getByLabelText(en.keyInput), { target: { value: 'sk-live' } })
+      fireEvent.click(screen.getByRole('button', { name: 'DeepSeek' }))
+      fireEvent.change(await screen.findByLabelText(en.keyInput), { target: { value: 'sk-live' } })
       fireEvent.click(screen.getByRole('button', { name: en.onboardingSave }))
       expect(await screen.findByText(message)).toBeTruthy()
       expect(screen.getByRole('dialog')).toBeTruthy()
@@ -224,6 +300,17 @@ describe('DeepSeekOnboardingDialog', () => {
       expect(h.mutate).not.toHaveBeenCalled()
       view.unmount()
     }
+  })
+
+  it('opens the custom-provider card from the picker', async () => {
+    const h = harness({ withCustom: true })
+    render(<DeepSeekOnboardingDialog {...h.props} />)
+    await screen.findByRole('dialog')
+    fireEvent.click(screen.getByRole('button', { name: en.customAdd }))
+    expect(await screen.findByRole('dialog', { name: en.customTitle })).toBeTruthy()
+    expect(screen.getByLabelText(en.customRoute)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: en.cancel }))
+    expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
   })
 
   it('allows configure-later dismissal without opening settings', async () => {
@@ -237,13 +324,11 @@ describe('DeepSeekOnboardingDialog', () => {
     expect(h.mutate).not.toHaveBeenCalled()
   })
 
-  it('does not block the product when DeepSeek setup is unavailable', async () => {
+  it('does not block the product when setup cannot be written', async () => {
     for (const h of [
       harness({ describeFailure: 'credentials service is absent' }),
-      harness({ credential: { writable: false } }),
       harness({ settingsWritable: false }),
       harness({ providersFailure: 'the provider directory is unavailable' }),
-      harness({ providerActive: false }),
       harness({ settingsNamespace: false }),
       harness({ apiKeyEnv: null }),
     ]) {
@@ -252,6 +337,18 @@ describe('DeepSeekOnboardingDialog', () => {
       expect(screen.queryByRole('dialog')).toBeNull()
       await waitFor(() => { expect(h.complete).toHaveBeenCalledOnce() })
       expect(h.openSection).not.toHaveBeenCalled()
+      view.unmount()
+    }
+  })
+
+  it('still offers the picker when official DeepSeek is inactive or its key is locked', async () => {
+    for (const h of [
+      harness({ credential: { writable: false } }),
+      harness({ providerActive: false }),
+    ]) {
+      const view = render(<DeepSeekOnboardingDialog {...h.props} />)
+      expect(await screen.findByRole('dialog', { name: en.onboardingTitle })).toBeTruthy()
+      expect(h.complete).not.toHaveBeenCalled()
       view.unmount()
     }
   })

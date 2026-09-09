@@ -13,7 +13,7 @@ DeepSeek Harness (`dsh`) es un harness open-source de [DeepSeek AI](https://deep
 - **OneBinary `DeepMod 1.0.3.exe`** — `OneBinary/electron/out/DeepMod 1.0.3.exe` (~249 MB, Electron 44, 264 paquetes) — doble clic y abre en la ventana de la app, sin navegador. Sesiones en `%APPDATA%\onebinary-electron\.dsh`.
 - **Splash RASNER** — `Iniciando RASNER…` + `?`, barra 0→100% con `121/121 plugins`, `Live log — avanzado` + `Copiar para GitHub/LLM`.
 - **i18n 5 idiomas** — `en`/`zh`/`pt`/`ru`/`es` con detección del SO y `No preguntar de nuevo`.
-- **Login libre** — `Add an API key` con `OpenCode Go`/`Codex`/`Otra API` + búsqueda local `.env` en el PC, sin exigir DeepSeek oficial.
+- **Login libre** — `Choose a provider to get started` con catálogo buscable y proveedor personalizado; DeepSeek oficial es opcional.
 - **Multi-plataforma** — GitHub Actions compila `Win`/`Linux`/`macOS` y **auto-update** vía `electron-updater` + Releases.
 
 Ver [`CHANGELOG.md`](CHANGELOG.md).
