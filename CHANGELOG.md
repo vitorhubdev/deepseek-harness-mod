@@ -2,6 +2,14 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.32] - 2026-09-09 — Ícone baleia + splash visível; portable 7z sem janela
+
+### Fixed
+- Ícone de baleia preta (`build/icon.ico` / `assets/whale.png`) no .exe, na janela e no splash de loading.
+- Splash fica `alwaysOnTop` até o UI local carregar; heartbeat no log durante o import pesado.
+- Portable: `splashImage` BMP da baleia durante a extração 7z + `unpackDirName: DeepMod` (`%TEMP%\DeepMod` estável). A 1ª abertura mostra a tela da baleia em vez de silêncio; a 2ª reusa a pasta.
+- Use `DeepMod Setup` se quiser abertura imediata sem extração.
+
 ## [1.0.31] - 2026-09-09 — CI fork: E2E sem key não vermelha; sandbox macOS só sandbox
 
 ### Fixed

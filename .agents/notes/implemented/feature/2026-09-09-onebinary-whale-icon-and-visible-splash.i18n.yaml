@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-09-onebinary-whale-icon-and-visible-splash.md
+2026-09-09-onebinary-whale-icon-and-visible-splash.md: 5e047ac8b22acc38a03407685518836e5e59e22f
+2026-09-09-onebinary-whale-icon-and-visible-splash.zh.md: 75931ad349b2ac6fd946dd8bf43406f04c607eca

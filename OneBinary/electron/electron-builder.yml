@@ -13,6 +13,13 @@ directories:
 # Verified: asar:false gives correct resolution for 202 @deepseek-ai/dsh-* packages + vendored cordis.
 asar: false
 
+win:
+  icon: build/icon.ico
+mac:
+  icon: build/icon.png
+linux:
+  icon: build/icon.png
+
 # normal em vez de maximum — o portable extrai ~260 MB para %TEMP% a cada
 # abertura; maximum economiza alguns MB no download mas custa segundos de
 # descompressão em toda abertura fria. O instalado (nsis) não extrai nada.
@@ -53,6 +60,11 @@ nsis:
   createStartMenuShortcut: true
 portable:
   requestExecutionLevel: user
+  # Pasta estável em %TEMP%\DeepMod — a 2ª abertura não gera um UUID novo.
+  unpackDirName: DeepMod
+  # BMP obrigatório: janela visível enquanto o SFX extrai (o 7z sem isto
+  # fica minutos sem UI e parece que o .exe não abre).
+  splashImage: build/portable-splash.bmp
 
 # Auto-update via GitHub Releases — electron-updater lê `latest.yml` do release.
 # O upload dos artefatos é exclusivo do job release-attach (.github/workflows/onebinary.yml),

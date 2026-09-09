@@ -300,6 +300,7 @@ ipcMain.handle('onebinary:quit', () => app.quit())
 // Window + menu
 // ---------------------------------------------------------------------------
 async function createWindow(): Promise<void> {
+  const iconPath = join(import.meta.dirname, '../assets/whale.png')
   win = new BrowserWindow({
     title: 'DeepMod',
     width: 1280,
@@ -307,7 +308,9 @@ async function createWindow(): Promise<void> {
     minWidth: 980,
     minHeight: 640,
     show: true,
+    alwaysOnTop: true,
     backgroundColor: '#0a0a0c',
+    ...existsSync(iconPath) ? { icon: iconPath } : {},
     webPreferences: {
       preload: join(import.meta.dirname, 'preload.js'),
       contextIsolation: true,
@@ -400,7 +403,18 @@ async function bootHarness(): Promise<void> {
   // dynamic import para o esbuild emitir chunk separado — main.js inicial
   // fica mínimo e o splash pinta antes do parse pesado.
   enableCompileCacheEarly()
-  const { loadLayeredEnv } = await import('@deepseek-ai/dsh-app-boot')
+  const importStarted = performance.now()
+  const beat = setInterval(() => {
+    writeLog(`boot heartbeat phase=${bootPhase} +${Math.round(performance.now() - BOOT_T0)}ms (import dsh-app-boot)`)
+  }, 2000)
+  writeLog('import @deepseek-ai/dsh-app-boot…')
+  let loadLayeredEnv: typeof import('@deepseek-ai/dsh-app-boot').loadLayeredEnv
+  try {
+    ;({ loadLayeredEnv } = await import('@deepseek-ai/dsh-app-boot'))
+    writeLog(`import dsh-app-boot ok in ${Math.round(performance.now() - importStarted)}ms`)
+  } finally {
+    clearInterval(beat)
+  }
   let environment: ReturnType<typeof loadLayeredEnv>
   try {
     environment = loadLayeredEnv('onebinary-electron')
@@ -588,6 +602,7 @@ async function bootHarness(): Promise<void> {
         cancelNavigationRetries()
         writeLog(`loadURL ok — ${logUrl} — boot total em ${((performance.now() - BOOT_T0) / 1000).toFixed(1)}s`)
         emitProgress(100, 'Pronto!', logUrl)
+        try { win.setAlwaysOnTop(false) } catch {}
         return true
       }
       return false
