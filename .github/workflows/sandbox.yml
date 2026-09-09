@@ -87,13 +87,12 @@ jobs:
           pnpm --dir native/system run build:ts
           pnpm --dir native/system run build:native
 
-      # The unit suite runs on ubuntu in `checks`; this is the one darwin leg
-      # in the workflow, so run it here too — the platform-dependent unit
-      # expectations (Seatbelt path canonicalization: /tmp IS /private/tmp)
-      # take their darwin branch only on this runner.
-      - name: Unit tests (darwin parity)
+      # Seatbelt path canonicalization (/tmp IS /private/tmp) lives in the
+      # sandbox packages. This job is the darwin confinement proof, not the
+      # repository-wide unit suite (that belongs to CI master).
+      - name: Unit tests (darwin sandbox parity)
         if: matrix.runner == 'seatbelt'
-        run: pnpm run test
+        run: pnpm exec vitest run packages/sandbox packages/shell/bash-sandbox --exclude '**/*.e2e.ts'
 
       - name: Sandbox e2e (real kernel confinement, world-verified)
         # NO_COLOR: vitest force-enables ANSI color under GITHUB_ACTIONS even

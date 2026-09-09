@@ -9,13 +9,14 @@ name: E2E (real DeepSeek API)
 # pull_request IS a trigger, but GitHub withholds repo secrets from BOTH forked
 # PRs and Dependabot PRs (the latter are same-repo, fork==false, but still
 # keyless). The job-level `if:` below skips the whole job for those untrusted
-# PRs. The Dependabot test keys on the PR AUTHOR (pull_request.user.login), not
-# github.actor (the run trigger) — a maintainer reopening a Dependabot PR would
-# make github.actor human while the PR is still keyless. When the job runs, the
-# secret is expected, so the preflight hard-fails if it's missing (a missing
-# secret would otherwise make the self-skipping suite report a false green). A
-# job skipped by a job-level `if:` reports as a SUCCESSFUL check, so this
-# workflow is safe to use as a required status check if desired.
+# PRs and when DEEPSEEK_API_KEY_EXTERNAL is unset (this fork). The Dependabot
+# test keys on the PR AUTHOR (pull_request.user.login), not github.actor (the
+# run trigger) — a maintainer reopening a Dependabot PR would make github.actor
+# human while the PR is still keyless. When the job runs, the secret is
+# expected, so the preflight hard-fails if it's missing (a missing secret would
+# otherwise make the self-skipping suite report a false green). A job skipped
+# by a job-level `if:` reports as a SUCCESSFUL check, so this workflow is safe
+# to use as a required status check if desired.
 #
 # SECURITY — NEVER change this trigger to `pull_request_target`. `pull_request`
 # checks out and runs the PR's HEAD code WITHOUT secrets for forks, which is what
@@ -55,11 +56,17 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     name: e2e
-    # Run on every trusted event. Skip untrusted PRs (forks + Dependabot) where
-    # the secret is withheld — they would otherwise hard-fail the preflight.
+    # Run on trusted events that actually have the key. A missing
+    # DEEPSEEK_API_KEY_EXTERNAL (this fork, or a misnamed secret) skips the
+    # job as a successful check instead of a 30s preflight red; the suite
+    # would otherwise self-skip and look green. When the secret is set, the
+    # preflight below still fail-loud if the mapped env is empty.
     if: >-
-      github.event_name != 'pull_request'
-      || !(github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')
+      secrets.DEEPSEEK_API_KEY_EXTERNAL != ''
+      && (
+        github.event_name != 'pull_request'
+        || !(github.event.pull_request.head.repo.fork || github.event.pull_request.user.login == 'dependabot[bot]')
+      )
     # Profile e2e files can each own several complete dsh subprocess trees, so
     # four file workers preserve process/PTY headroom. Tests retain 120s/test
     # and retry 2; 45m still bounds retry storms against a slow API.

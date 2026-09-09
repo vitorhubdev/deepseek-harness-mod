@@ -182,7 +182,6 @@ interface BrowserPromptSource {
   readonly clientTimeZone?: string
 }
 
-/** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
 /**
  * Maximum concurrently live one-shot subagent runs per runtime. Depth caps
  * levels (`maxDepth`); this caps breadth: without it a model fanning N
@@ -196,6 +195,7 @@ interface BrowserPromptSource {
  */
 export const MAX_LIVE_SUBAGENT_RUNS = 32
 
+/** Named provider registry with one-shot runs, durable discovery, and continuable-child operations. */
 export class SubagentRuntime extends TypertRemoteService {
   private providers = new Map<string, SubagentProvider>()
   private continuations: SubagentContinuationManager | undefined

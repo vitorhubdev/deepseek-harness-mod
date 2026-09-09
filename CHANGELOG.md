@@ -2,6 +2,13 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.31] - 2026-09-09 — CI fork: E2E sem key não vermelha; sandbox macOS só sandbox
+
+### Fixed
+- Workflow E2E pula o job (check verde) quando o secret `DEEPSEEK_API_KEY_EXTERNAL` está vazio; preflight continua fail-loud se o secret existir.
+- Sandbox Seatbelt (macOS) deixa de correr `pnpm run test` inteiro; só unidades de sandbox + e2e Seatbelt.
+- Bordas CSS DeepMod passam a `0.5px`; `demo:acp` lança `dsh --profile acp`; JSDoc em `SubagentRuntime`. Scripts `demo:code-mode` / `demo:cordis` (ficheiros inexistentes) removidos.
+
 ## [1.0.30] - 2026-09-09 — Onboarding escolhe provedor, DeepSeek opcional
 
 ### Changed

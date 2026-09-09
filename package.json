@@ -1,6 +1,6 @@
 {
   "name": "@deepseek-ai/dsh-root",
-  "version": "1.0.30",
+  "version": "1.0.31",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -180,9 +180,7 @@
     "dev:mod": "tsx scripts/dev-web.ts",
     "mod:quick": "pnpm run build:lib:client && pnpm dsh web",
     "mod:watch": "tsx scripts/dev-web.ts --poll",
-    "demo:code-mode": "node scripts/demo-code-mode.mjs",
-    "demo:cordis": "node scripts/demo-cordis.mjs",
-    "demo:acp": "node --import tsx packages/examples/acp-demo/src/bin.ts --config examples/acp-agent/cordis.yml",
+    "demo:acp": "node --import tsx/esm apps/cli/src/bin.ts --profile acp",
     "demo:ptc": "node scripts/demo-ptc.mjs",
     "demo:inspector": "node --import tsx/esm apps/cli/src/bin.ts web --patch ./packages/experimental/inspector/cordis.source.patch.yml",
     "mock:llm": "node --import tsx packages/test-support/llm-mock-server/src/bin.ts",
