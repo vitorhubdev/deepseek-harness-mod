@@ -139,6 +139,7 @@ examples/*/.sessions/
 examples/*/*.jsonl
 .humanize/
 tmp/
+apps/desktop/.desktop-build/
 python/sdk-runtime/src/deepseek_harness_runtime/runtime/deepseek-harness-sdk-runtime-*
 python/**/__pycache__/
 python/**/.pytest_cache/
@@ -147,3 +148,4 @@ apps/web/dist/
 .worktrees/
 worktrees/
 .agents/worktrees/
+native/system/test/bin/

@@ -2,6 +2,13 @@
 
 Todas as mudanças notáveis deste fork serão documentadas aqui. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/).
 
+## [1.0.27] - 2026-09-09 — Merge oficial `dsh-v0.1.5-alpha.1` (preserva DeepMod)
+
+### Changed
+- Incorpora as três tags oficiais posteriores a `dsh-v0.1.2-rc.1`: `dsh-v0.1.3-alpha.1`, `dsh-v0.1.3-alpha.2` e `dsh-v0.1.5-alpha.1` (não existe `0.1.4`).
+- Versão DeepMod permanece `1.0.x` (`1.0.26` → `1.0.27`); `0.1.5-alpha.1` é só tracking upstream.
+- OneBinary, picker de provedores, splash/updater, scripts `dsh:mod`/`mod:quick` e endurecimento de boot/flush/teardown continuam neste fork, reaplicados sobre a estrutura oficial (Session V3, `SessionHandle`, desktop oficial, `native/system`).
+
 ## [1.0.3] - 2026-08-31 — Validação total, 5 idiomas estáveis e release multi-plataforma
 
 > **Regra deste repo:** tudo que o usuário pedir é **testado e validado** antes de ir para produção; **grandes mudanças** (`OneBinary`, `i18n`, `auto-update`, `matrix`) **bumpam a versão em +1** (1.0.2 → 1.0.3).

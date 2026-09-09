@@ -119,12 +119,18 @@ async function pruneMapsAndBuildInfo(dir, depth = 0) {
 }
 
 async function ensureStableProfileBoot(appRoot) {
-  const { readdir: rd, writeFile } = require('node:fs/promises')
+  const { readdir: rd, writeFile, rm: rmFile } = require('node:fs/promises')
   const { pathToFileURL } = require('node:url')
   const libDir = join(appRoot, 'apps', 'cli', 'lib')
   let entries = []
   try { entries = await rd(libDir, { withFileTypes: true }) } catch { return }
-  if (entries.some(e => !e.isDirectory() && e.name === 'profile-boot.js')) return
+  // Never trust a shim from a previous pack of a reused out dir: a renamed
+  // chunk would leave the old target dangling into ERR_MODULE_NOT_FOUND.
+  // Remove it first so the probe below always re-resolves against this pack.
+  if (entries.some(e => !e.isDirectory() && e.name === 'profile-boot.js')) {
+    try { await rmFile(join(libDir, 'profile-boot.js')) } catch { return }
+    try { entries = await rd(libDir, { withFileTypes: true }) } catch { return }
+  }
   const chunks = entries.filter(e => !e.isDirectory() && /^profile-boot-[A-Za-z0-9_-]+\.js$/.test(e.name)).map(e => e.name)
   for (const chunk of chunks) {
     try {
