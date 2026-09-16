@@ -272,10 +272,25 @@ jobs:
           PY
 
       - name: Install dependencies
+        shell: bash
         run: |
+          set -euo pipefail
           corepack enable
+
+          # OneBinary is a fork-only assembly whose manifest still references
+          # packages removed upstream. Exclude it only while installing the
+          # upstream workspace needed for llm-pi-ai validation.
+          cp pnpm-workspace.yaml /tmp/pnpm-workspace.yaml
+          trap 'cp /tmp/pnpm-workspace.yaml pnpm-workspace.yaml; git checkout -- pnpm-lock.yaml' EXIT
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('pnpm-workspace.yaml')
+          path.write_text(path.read_text().replace('  - OneBinary/electron\n', ''))
+          PY
           pnpm install --no-frozen-lockfile
+          cp /tmp/pnpm-workspace.yaml pnpm-workspace.yaml
           git checkout -- pnpm-lock.yaml
+          trap - EXIT
 
       - name: Test OpenCode Go session support
         run: |
