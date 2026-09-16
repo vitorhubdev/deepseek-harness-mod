@@ -294,8 +294,8 @@ jobs:
 
       - name: Test OpenCode Go session support
         run: |
-          pnpm exec vitest run packages/llm/llm-pi-ai/tests/adapter.spec.ts packages/llm/llm-pi-ai/tests/config.spec.ts
-          pnpm exec tsc -p packages/llm/llm-pi-ai/tsconfig.json --noEmit
+          ./node_modules/.bin/vitest run packages/llm/llm-pi-ai/tests/adapter.spec.ts packages/llm/llm-pi-ai/tests/config.spec.ts
+          ./node_modules/.bin/tsc -p packages/llm/llm-pi-ai/tsconfig.json --noEmit
 
       - name: Commit and push synchronized source
         shell: bash
