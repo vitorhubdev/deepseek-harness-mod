@@ -75,9 +75,8 @@ jobs:
             fi
           fi
 
-          # The Actions token has contents:write but cannot update workflow files.
-          # Keep this fork's workflow set byte-for-byte so the source sync can be pushed
-          # and so fork-specific CI/OneBinary behavior is not replaced by upstream CI.
+          # Preserve this fork's workflow set: the default Actions token cannot
+          # write workflow files, and these workflows contain fork-specific CI.
           mapfile -d '' workflow_changes < <(git diff --name-only -z "$before_sha" -- .github/workflows)
           for path in "${workflow_changes[@]}"; do
             echo "Preserving fork workflow: ${path}"
@@ -110,203 +109,162 @@ jobs:
           config = config_path.read_text()
           tests = test_path.read_text()
 
+          def replace_once(text: str, needle: str, replacement: str, label: str) -> str:
+              if needle not in text:
+                  raise SystemExit(f'{label} insertion point changed upstream')
+              return text.replace(needle, replacement, 1)
+
           if 'sessionHeader?: string' not in config:
-              old = """  /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
-          headers?: Record<string, string>
-          /** Provider-neutral pi-ai reasoning level. */
-          """
-              new = """  /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
-          headers?: Record<string, string>
-          /**
-           * Header receiving the per-conversation Harness session id. The
-           * `opencode-go` route defaults to `x-opencode-session`; other routes
-           * opt in explicitly. The dynamic value wins a same-name static header.
-           */
-          sessionHeader?: string
-          /** Provider-neutral pi-ai reasoning level. */
-          """
-              if old not in config:
-                  raise SystemExit('config interface insertion point changed upstream')
-              config = config.replace(old, new, 1)
+              needle = '  headers?: Record<string, string>\n'
+              replacement = needle + '\n'.join([
+                  '  /**',
+                  '   * Header receiving the per-conversation Harness session id. The',
+                  '   * `opencode-go` route defaults to `x-opencode-session`; other routes',
+                  '   * opt in explicitly. The dynamic value wins a same-name static header.',
+                  '   */',
+                  '  sessionHeader?: string',
+                  '',
+              ])
+              config = replace_once(config, needle, replacement, 'config interface')
 
-              old = """  headers: z.dict(z.string()),
-          reasoning: z.union(THINKING_LEVELS),
-          """
-              new = """  headers: z.dict(z.string()),
-          sessionHeader: z.string(),
-          reasoning: z.union(THINKING_LEVELS),
-          """
-              if old not in config:
-                  raise SystemExit('config schema insertion point changed upstream')
-              config = config.replace(old, new, 1)
+              needle = '  headers: z.dict(z.string()),\n'
+              replacement = needle + '  sessionHeader: z.string(),\n'
+              config = replace_once(config, needle, replacement, 'config schema')
 
-              old = """function assertValidHeaders(provider: string, headers: Readonly<Record<string, string>> | undefined): void {
-            for (const [name, value] of Object.entries(headers ?? {})) {
-              try {
-                new Headers([[name, value]])
-              } catch {
-                throw new Error(
-                  `llm-pi-ai: provider \"${provider}\" header \"${name}\" is not valid for Fetch;`
-                  + ' use a valid HTTP field name and a single-line value representable as bytes',
-                )
-              }
-            }
-          }
-          """
-              new = old + """
-          /** Reject a configured dynamic session header name that Fetch cannot represent. */
-          function assertValidSessionHeader(provider: string, sessionHeader: string | undefined): void {
-            if (sessionHeader === undefined) return
-            try {
-              new Headers([[sessionHeader, 'session']])
-            } catch {
-              throw new Error(
-                `llm-pi-ai: provider \"${provider}\" sessionHeader \"${sessionHeader}\" is not a valid HTTP field name`,
-              )
-            }
-          }
-          """
-              if old not in config:
-                  raise SystemExit('header validation insertion point changed upstream')
-              config = config.replace(old, new, 1)
+              validation_marker = '\n/**\n * Resolve scalar defaults and materialize each route\'s serviceable models.'
+              validation = '\n'.join([
+                  '',
+                  '/** Reject a configured dynamic session-header name that Fetch cannot represent. */',
+                  'function assertValidSessionHeader(provider: string, sessionHeader: string | undefined): void {',
+                  '  if (sessionHeader === undefined) return',
+                  '  try {',
+                  "    new Headers([[sessionHeader, 'session']])",
+                  '  } catch {',
+                  '    throw new Error(',
+                  '      `llm-pi-ai: provider "${provider}" sessionHeader "${sessionHeader}" is not a valid HTTP field name`,',
+                  '    )',
+                  '  }',
+                  '}',
+              ])
+              config = replace_once(config, validation_marker, validation + validation_marker, 'session header validator')
 
-              old = """    assertValidHeaders(provider, source.headers)
-            const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
-          """
-              new = """    assertValidHeaders(provider, source.headers)
-            assertValidSessionHeader(provider, source.sessionHeader)
-            const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
-          """
-              if old not in config:
-                  raise SystemExit('profile validation callsite changed upstream')
-              config = config.replace(old, new, 1)
+              needle = '    assertValidHeaders(provider, source.headers)\n'
+              replacement = needle + '    assertValidSessionHeader(provider, source.sessionHeader)\n'
+              config = replace_once(config, needle, replacement, 'profile validation')
 
           if "'x-opencode-session'" not in adapter:
-              old = """/** Merge deployment headers while removing case-insensitive attribution collisions. */
-          function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
-            const attribution = attributionHeaders()
-            const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
-            return {
-              ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
-              ...attribution,
-            }
-          }
-          """
-              new = """/** Merge deployment headers while protecting dynamic session affinity and Harness attribution. */
-          function requestHeaders(
-            headers: Readonly<Record<string, string>> | undefined,
-            sessionHeader: string | undefined,
-            sessionId: string | undefined,
-          ): Record<string, string> {
-            const attribution = attributionHeaders()
-            const reserved = new Set([
-              ...Object.keys(attribution),
-              ...sessionHeader === undefined ? [] : [sessionHeader],
-            ].map(name => name.toLowerCase()))
-            const dynamicSession = sessionHeader === undefined || sessionId === undefined
-              ? {}
-              : { [sessionHeader]: sessionId }
-            return {
-              ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
-              ...dynamicSession,
-              ...attribution,
-            }
-          }
-          """
-              if old not in adapter:
-                  raise SystemExit('requestHeaders implementation changed upstream')
-              adapter = adapter.replace(old, new, 1)
+              start_marker = '/** Merge deployment headers while removing case-insensitive attribution collisions. */'
+              end_marker = '\n\n/**\n * pi-ai-backed multi-provider adapter.'
+              try:
+                  start = adapter.index(start_marker)
+                  end = adapter.index(end_marker, start)
+              except ValueError as error:
+                  raise SystemExit('requestHeaders insertion point changed upstream') from error
 
-              old = """      const events = snapshot.models.streamSimple(model, context, {
-                ...profileOptions(profile, reasoning, apiKey),
-                ...options.temperature === undefined ? {} : { temperature: options.temperature },
-                ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-                ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
-                signal: watchdog.signal,
-                // Profile headers are deployment-owned; attribution names are
-                // Harness-owned and therefore win collisions.
-                headers: requestHeaders(profile.headers),
-              })
-          """
-              new = """      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
-              const sessionHeader = profile.sessionHeader
-                ?? (options.provider === 'opencode-go' ? 'x-opencode-session' : undefined)
-              const events = snapshot.models.streamSimple(model, context, {
-                ...profileOptions(profile, reasoning, apiKey),
-                ...options.temperature === undefined ? {} : { temperature: options.temperature },
-                ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-                ...sessionId === undefined ? {} : { sessionId },
-                signal: watchdog.signal,
-                // Profile headers are deployment-owned; a per-session affinity
-                // header and Harness attribution are runtime-owned and win collisions.
-                headers: requestHeaders(profile.headers, sessionHeader, sessionId),
-              })
-          """
-              if old not in adapter:
-                  raise SystemExit('streamSimple callsite changed upstream')
-              adapter = adapter.replace(old, new, 1)
+              request_headers = '\n'.join([
+                  '/** Merge deployment headers while protecting dynamic session affinity and Harness attribution. */',
+                  'function requestHeaders(',
+                  '  headers: Readonly<Record<string, string>> | undefined,',
+                  '  sessionHeader: string | undefined,',
+                  '  sessionId: string | undefined,',
+                  '): Record<string, string> {',
+                  '  const attribution = attributionHeaders()',
+                  '  const reserved = new Set([',
+                  '    ...Object.keys(attribution),',
+                  '    ...(sessionHeader === undefined ? [] : [sessionHeader]),',
+                  '  ].map(name => name.toLowerCase()))',
+                  '  const dynamicSession = sessionHeader === undefined || sessionId === undefined',
+                  '    ? {}',
+                  '    : { [sessionHeader]: sessionId }',
+                  '  return {',
+                  '    ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),',
+                  '    ...dynamicSession,',
+                  '    ...attribution,',
+                  '  }',
+                  '}',
+              ])
+              adapter = adapter[:start] + request_headers + adapter[end:]
 
-          marker = "sends the OpenCode Go session id as x-opencode-session"
+              needle = '      const events = snapshot.models.streamSimple(model, context, {\n'
+              prefix = '\n'.join([
+                  '      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)',
+                  '      const sessionHeader = profile.sessionHeader',
+                  "        ?? (options.provider === 'opencode-go' ? 'x-opencode-session' : undefined)",
+                  '',
+              ])
+              adapter = replace_once(adapter, needle, prefix + needle, 'stream session header')
+              adapter = replace_once(
+                  adapter,
+                  '        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },\n',
+                  '        ...sessionId === undefined ? {} : { sessionId },\n',
+                  'stream session id',
+              )
+              adapter = replace_once(
+                  adapter,
+                  '        // Profile headers are deployment-owned; attribution names are\n        // Harness-owned and therefore win collisions.\n        headers: requestHeaders(profile.headers),\n',
+                  '        // Profile headers are deployment-owned; dynamic session affinity and\n        // Harness attribution are runtime-owned and therefore win collisions.\n        headers: requestHeaders(profile.headers, sessionHeader, sessionId),\n',
+                  'stream request headers',
+              )
+
+          marker = 'sends the OpenCode Go session id as x-opencode-session'
           if marker not in tests:
-              anchor = """  it('forwards common stream options and profile reasoning', async () => {
-          """
-              test = """  it('sends the OpenCode Go session id as x-opencode-session and overrides a static value', async () => {
-            const server = await mockServer([{ events: textEvents }, { events: textEvents }])
-            const ctx = new Context()
-            await ctx.plugin(LlmRuntime)
-            ctx.llm.registerAdapter(['opencode-go'], adapterOf({
-              'opencode-go': {
-                api: 'openai-completions',
-                baseURL: server.url,
-                models: [{ id: 'go-model' }],
-                headers: { 'X-OpenCode-Session': 'static-wrong' },
-              },
-            }))
-
-            await assemble(ctx, {
-              provider: 'opencode-go',
-              model: 'go-model',
-              messages: [],
-              sessionId: 'conversation-a' as never,
-            })
-            await assemble(ctx, {
-              provider: 'opencode-go',
-              model: 'go-model',
-              messages: [],
-              sessionId: 'conversation-b' as never,
-            })
-
-            expect(server.headers[0]?.['x-opencode-session']).toBe('conversation-a')
-            expect(server.headers[1]?.['x-opencode-session']).toBe('conversation-b')
-          })
-
-            it('supports an explicit dynamic session header on custom provider routes', async () => {
-            const server = await mockServer([{ events: textEvents }])
-            const ctx = new Context()
-            await ctx.plugin(LlmRuntime)
-            ctx.llm.registerAdapter(['custom-gateway'], adapterOf({
-              'custom-gateway': {
-                api: 'openai-completions',
-                baseURL: server.url,
-                models: [{ id: 'custom-model' }],
-                sessionHeader: 'x-session-affinity',
-              },
-            }))
-
-            await assemble(ctx, {
-              provider: 'custom-gateway',
-              model: 'custom-model',
-              messages: [],
-              sessionId: 'custom-conversation' as never,
-            })
-
-            expect(server.headers[0]?.['x-session-affinity']).toBe('custom-conversation')
-          })
-
-          """
-              if anchor not in tests:
-                  raise SystemExit('adapter test insertion point changed upstream')
-              tests = tests.replace(anchor, test + anchor, 1)
+              anchor = "  it('forwards common stream options and profile reasoning', async () => {\n"
+              test = '\n'.join([
+                  "  it('sends the OpenCode Go session id as x-opencode-session and overrides a static value', async () => {",
+                  '    const server = await mockServer([{ events: textEvents }, { events: textEvents }])',
+                  '    const ctx = new Context()',
+                  '    await ctx.plugin(LlmRuntime)',
+                  "    ctx.llm.registerAdapter(['opencode-go'], adapterOf({",
+                  "      'opencode-go': {",
+                  "        api: 'openai-completions',",
+                  '        baseURL: server.url,',
+                  "        models: [{ id: 'go-model' }],",
+                  "        headers: { 'X-OpenCode-Session': 'static-wrong' },",
+                  '      },',
+                  '    }))',
+                  '',
+                  '    await assemble(ctx, {',
+                  "      provider: 'opencode-go',",
+                  "      model: 'go-model',",
+                  '      messages: [],',
+                  "      sessionId: 'conversation-a' as never,",
+                  '    })',
+                  '    await assemble(ctx, {',
+                  "      provider: 'opencode-go',",
+                  "      model: 'go-model',",
+                  '      messages: [],',
+                  "      sessionId: 'conversation-b' as never,",
+                  '    })',
+                  '',
+                  "    expect(server.headers[0]?.['x-opencode-session']).toBe('conversation-a')",
+                  "    expect(server.headers[1]?.['x-opencode-session']).toBe('conversation-b')",
+                  '  })',
+                  '',
+                  "  it('supports an explicit dynamic session header on custom provider routes', async () => {",
+                  '    const server = await mockServer([{ events: textEvents }])',
+                  '    const ctx = new Context()',
+                  '    await ctx.plugin(LlmRuntime)',
+                  "    ctx.llm.registerAdapter(['custom-gateway'], adapterOf({",
+                  "      'custom-gateway': {",
+                  "        api: 'openai-completions',",
+                  '        baseURL: server.url,',
+                  "        models: [{ id: 'custom-model' }],",
+                  "        sessionHeader: 'x-session-affinity',",
+                  '      },',
+                  '    }))',
+                  '',
+                  '    await assemble(ctx, {',
+                  "      provider: 'custom-gateway',",
+                  "      model: 'custom-model',",
+                  '      messages: [],',
+                  "      sessionId: 'custom-conversation' as never,",
+                  '    })',
+                  '',
+                  "    expect(server.headers[0]?.['x-session-affinity']).toBe('custom-conversation')",
+                  '  })',
+                  '',
+              ])
+              tests = replace_once(tests, anchor, test + anchor, 'adapter tests')
 
           adapter_path.write_text(adapter)
           config_path.write_text(config)
