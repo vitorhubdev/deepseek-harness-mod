@@ -1,0 +1,105 @@
+name: Repair OneBinary workspace compatibility
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/repair-onebinary-workspace.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Remove stale OneBinary workspace dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          from pathlib import Path
+
+          root = Path('.')
+          patterns = [
+              'vendor/*',
+              'packages/*/*',
+              'native/system',
+              'native/system/packages/*',
+              'apps/*',
+              'benchmarks',
+              'website',
+              'python/sdk-runtime',
+              'OneBinary/electron',
+          ]
+
+          workspace_names = set()
+          for pattern in patterns:
+              for directory in root.glob(pattern):
+                  manifest = directory / 'package.json'
+                  if not manifest.is_file():
+                      continue
+                  try:
+                      data = json.loads(manifest.read_text())
+                  except Exception as error:
+                      raise SystemExit(f'Invalid manifest {manifest}: {error}')
+                  name = data.get('name')
+                  if isinstance(name, str) and name:
+                      workspace_names.add(name)
+
+          target = root / 'OneBinary/electron/package.json'
+          data = json.loads(target.read_text())
+          removed = []
+          for section in ('dependencies', 'devDependencies', 'optionalDependencies'):
+              deps = data.get(section)
+              if not isinstance(deps, dict):
+                  continue
+              for name, version in list(deps.items()):
+                  if isinstance(version, str) and version.startswith('workspace:') and name not in workspace_names:
+                      removed.append((section, name, version))
+                      del deps[name]
+
+          if removed:
+              target.write_text(json.dumps(data, indent=2, ensure_ascii=False) + '\n')
+              print('Removed stale workspace dependencies:')
+              for section, name, version in removed:
+                  print(f'  {section}: {name} ({version})')
+          else:
+              print('No stale OneBinary workspace dependencies found.')
+          PY
+
+      - name: Install complete workspace and repair lockfile drift
+        run: |
+          corepack enable
+          pnpm install --no-frozen-lockfile
+
+      - name: Validate OpenCode Go and OneBinary
+        run: |
+          ./node_modules/.bin/vitest run packages/llm/llm-pi-ai/tests/adapter.spec.ts packages/llm/llm-pi-ai/tests/config.spec.ts
+          ./node_modules/.bin/tsc -b packages/llm/llm-pi-ai/tsconfig.json --force --pretty false
+          ./node_modules/.bin/tsc -p OneBinary/electron/tsconfig.json --noEmit --pretty false
+          pnpm --dir OneBinary/electron run build:bundle
+
+      - name: Commit repaired workspace manifests
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add OneBinary/electron/package.json pnpm-lock.yaml
+          if git diff --cached --quiet; then
+            echo 'No manifest or lockfile changes required.'
+          else
+            git commit -m 'fix(onebinary): align workspace dependencies with upstream'
+            git push origin HEAD:master
+          fi
