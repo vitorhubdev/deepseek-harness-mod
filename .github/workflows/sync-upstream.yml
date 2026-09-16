@@ -295,7 +295,7 @@ jobs:
       - name: Test OpenCode Go session support
         run: |
           ./node_modules/.bin/vitest run packages/llm/llm-pi-ai/tests/adapter.spec.ts packages/llm/llm-pi-ai/tests/config.spec.ts
-          ./node_modules/.bin/tsc -p packages/llm/llm-pi-ai/tsconfig.json --noEmit
+          ./node_modules/.bin/tsc -b packages/llm/llm-pi-ai/tsconfig.json --force --pretty false
 
       - name: Commit and push synchronized source
         shell: bash
