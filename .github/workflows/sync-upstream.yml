@@ -45,8 +45,7 @@ jobs:
           echo "Upstream:    ${upstream_sha}"
 
           set +e
-          git merge --no-ff -X ours upstream/master \
-            -m "merge: sync deepseek-ai/deepseek-harness upstream master ${upstream_sha:0:12}"
+          git merge --no-ff --no-commit -X ours upstream/master
           merge_status=$?
           set -e
 
@@ -61,8 +60,8 @@ jobs:
 
             for path in "${conflicts[@]}"; do
               echo "Resolving in favor of fork customization: ${path}"
-              if git cat-file -e "HEAD:${path}" 2>/dev/null; then
-                git checkout HEAD -- "$path"
+              if git cat-file -e "${before_sha}:${path}" 2>/dev/null; then
+                git checkout "$before_sha" -- "$path"
                 git add -- "$path"
               else
                 git rm -f --ignore-unmatch -- "$path"
@@ -74,7 +73,26 @@ jobs:
               git diff --name-only --diff-filter=U
               exit 1
             fi
-            git commit --no-edit
+          fi
+
+          # The Actions token has contents:write but cannot update workflow files.
+          # Keep this fork's workflow set byte-for-byte so the source sync can be pushed
+          # and so fork-specific CI/OneBinary behavior is not replaced by upstream CI.
+          mapfile -d '' workflow_changes < <(git diff --name-only -z "$before_sha" -- .github/workflows)
+          for path in "${workflow_changes[@]}"; do
+            echo "Preserving fork workflow: ${path}"
+            if git cat-file -e "${before_sha}:${path}" 2>/dev/null; then
+              git checkout "$before_sha" -- "$path"
+              git add -- "$path"
+            else
+              git rm -f --ignore-unmatch -- "$path"
+            fi
+          done
+
+          if git rev-parse -q --verify MERGE_HEAD >/dev/null; then
+            git commit -m "merge: sync deepseek-ai/deepseek-harness upstream master ${upstream_sha:0:12}"
+          else
+            echo "No merge commit needed."
           fi
 
           echo "Result: $(git rev-parse HEAD)"
