@@ -42,8 +42,7 @@ import styles from './ModelsSection.module.css'
 /** Per-adapter-family curated field sets (unknown namespaces get the hint alone). */
 type EditorLayout = 'deepseek' | 'pi-ai' | 'unknown'
 
-/** The public DeepSeek endpoint shown as the deepseek base-URL placeholder. */
-const DEEPSEEK_PUBLIC_BASE_URL = 'https://api.deepseek.com'
+
 
 export { DEFAULT_PROVIDER_BASE_URLS } from './default-urls.ts'
 import { DEFAULT_PROVIDER_BASE_URLS } from './default-urls.ts'

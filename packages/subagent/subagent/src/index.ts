@@ -74,8 +74,10 @@ import { listChildren as listSubagentChildren, listDescendants as listSubagentDe
 import type { SubagentDescendantListEntry, SubagentListEntry } from './list-children.ts'
 import { snapshotSubagentDescriptor } from './descriptor.ts'
 import { subagentIdentityProjectionDefinition, subagentTimingProjectionDefinition } from './projection.ts'
+import { establishCatalogChild, subagentCatalogProjectionDefinition } from './catalog.ts'
 import { deliverSubagentPrompt } from './internal.ts'
 
+export type {} from './catalog.ts'
 export * from './out-of-process.ts'
 export { AssistantOutputFold, finalAssistantOutput } from './assistant-output.ts'
 export { SubagentRunId } from './types.ts'
@@ -223,6 +225,7 @@ export class SubagentRuntime extends TypertRemoteService {
       }, 'subagents.continuationBinding()')
     })
     ctx.inject(['sessionProjections'], (projectionCtx) => {
+      projectionCtx.sessionProjections.register(subagentCatalogProjectionDefinition)
       projectionCtx.sessionProjections.register(subagentTimingProjectionDefinition)
       projectionCtx.sessionProjections.register(subagentIdentityProjectionDefinition)
     })
@@ -266,12 +269,12 @@ export class SubagentRuntime extends TypertRemoteService {
 
   /**
    * Deliver one host-protocol message to a direct continuable child.
-   * Symbol-keyed so host adapters can preserve their own provenance without
+   * Symbol-keyed so host adapters can preserve their own source descriptors without
    * widening the public Service Definition or impersonating an Agent sender.
    * @param parent - exact live direct parent authorizing delivery.
    * @param childId - durable direct-child session id.
    * @param content - host-authored content to deliver.
-   * @param source - durable host-protocol provenance.
+   * @param source - durable host-protocol source descriptor.
    * @param signal - caller cancellation before inbox acceptance.
    * @param delivery - Queue as a distinct turn or Steer at the nearest step.
    * @returns the accepted message's inbox id.
@@ -559,6 +562,8 @@ export class SubagentRuntime extends TypertRemoteService {
    * fulfills; a rejection therefore has no run for the caller to dispose and
    * emits no run lifecycle events. Post-publication turn and infrastructure
    * failures settle through the returned run.
+   * A catalog append failure disposes the run and handles its result rejection;
+   * the caller receives the catalog error even if disposal also fails.
    * @param name - the provider to use.
    * @param request - child label, prompt, parent, signal, and optional capabilities.
    * @returns the published holder-owned run.

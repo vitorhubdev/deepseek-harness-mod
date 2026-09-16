@@ -10,9 +10,28 @@ import type {
   IWorkspaces, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 
 /** Workspace archive and directory operations consumed by Client UI domains. */
 export interface UiWorkspace {
+  /**
+   * Select a Session and show its Conversation as one UI navigation action.
+   * @param sessionId - listed or retained Session to display.
+   */
+  openSession(sessionId: SessionId): void
+  /**
+   * Connect a Workspace and open its Session unless a later navigation supersedes it.
+   * @param workspaceId - target Workspace.
+   * @param beforeOpen - optional synchronous preparation for the selected Session, skipped after supersession.
+   * @returns completion; a superseded request may create a Session but does not open it.
+   */
+  openWorkspace(workspaceId: WorkspaceId, beforeOpen?: (sessionId: SessionId) => void): Promise<void>
+  /**
+   * Fork a Session and open the child unless a later navigation supersedes it.
+   * @param sessionId - source Session.
+   * @returns completion; a superseded request leaves its child available without selecting it.
+   */
+  forkSession(sessionId: SessionId): Promise<void>
   /**
    * Resolve the reusable or newly created blank Session for a Workspace.
    * @param workspaceId - target Workspace.
@@ -30,6 +49,11 @@ export interface UiWorkspace {
    * @param sessionId - Session to archive.
    */
   archiveSession(sessionId: SessionId): Promise<void>
+  /**
+   * Unarchive a Session, restoring it to its recorded Workspace position.
+   * @param sessionId - Session to unarchive.
+   */
+  unarchiveSession(sessionId: SessionId): Promise<void>
   /**
    * Open the Host-native directory picker.
    * @returns the selected directory, or null when cancelled.
@@ -71,6 +95,7 @@ export class DirectoryBrowseError extends Error {
 /** Implements Workspace archive and directory UI operations. */
 class UiWorkspaceService extends Service implements UiWorkspace {
   private readonly connecting = new Map<WorkspaceId, Promise<SessionId>>()
+  private readonly lifetime = new AbortController()
 
   /**
    * @param ctx - Client root Context.
@@ -145,6 +170,10 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     await this.workspaces.archiveSession(sessionId)
   }
 
+  async unarchiveSession(sessionId: SessionId): Promise<void> {
+    await this.workspaces.unarchiveSession(sessionId)
+  }
+
   async pickDirectory(): Promise<string | null> {
     const result = await this.directoryPicker.pick()
     if (!result.ok) throw new Error(`directory picker failed: ${result.error.message}`)
@@ -165,9 +194,8 @@ class UiWorkspaceService extends Service implements UiWorkspace {
 
   private watchNavigation(): () => void {
     let initial: 'waiting' | 'connecting' | 'done' = 'waiting'
-    let disposed = false
     const reconcile = (): void => {
-      if (disposed) return
+      if (this.lifetime.signal.aborted) return
       if (this.clearArchivedCurrent()) return
       if (initial !== 'waiting') return
       const workspace = this.workspaces.list.getSnapshot()
@@ -185,14 +213,14 @@ class UiWorkspaceService extends Service implements UiWorkspace {
       initial = 'connecting'
       void this.connectWorkspace(target).then(
         (sessionId) => {
-          if (disposed) return
+          if (this.lifetime.signal.aborted) return
           if (this.sessions.list.getSnapshot().current === undefined) {
             this.sessions.open(sessionId)
           }
           initial = 'done'
         },
         (reason: unknown) => {
-          if (disposed) return
+          if (this.lifetime.signal.aborted) return
           initial = 'waiting'
           console.warn('initial workspace selection failed:', reason)
         },
@@ -202,7 +230,7 @@ class UiWorkspaceService extends Service implements UiWorkspace {
     const disposeSessions = this.sessions.list.subscribe(reconcile)
     reconcile()
     return () => {
-      disposed = true
+      this.lifetime.abort()
       disposeSessions()
       disposeWorkspaces()
     }

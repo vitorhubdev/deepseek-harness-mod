@@ -10,15 +10,10 @@
 
 import { type ChildProcess, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
 import type { Readable } from 'node:stream'
-import { randomBytes } from 'node:crypto'
-import { closeSync, mkdtempSync, openSync, rmdirSync, unlinkSync, writeSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { setTimeout as sleepMs } from 'node:timers/promises'
 import { scrubbedParentEnv } from '@deepseek-ai/dsh-subprocess'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import type {
-  CollectedOutput,
   SubprocessCollect,
   SubprocessHandle,
   SubprocessOutcome,
@@ -27,7 +22,10 @@ import type {
 } from '@deepseek-ai/dsh-subprocess'
 import type { BoundProcessOwner, ManagedProcessLaunch } from './managed-owner.ts'
 import { waitWithAbort } from './managed-owner.ts'
+import { controlEnvironment, controlPipe } from './control-spawn.ts'
+import { SUBPROCESS_CONTROL_FD } from '@deepseek-ai/dsh-subprocess/control'
 import { linuxProcessGroupHasLiveMembers } from './process-inspector.ts'
+import { OutputCollector, prepareManagedProcessBinding } from './output.ts'
 
 type SpawnProcess = (
   program: string,
@@ -638,6 +636,7 @@ export function bindManagedProcess(
     stdin: stdinMode === 'pipe' ? stdin ?? undefined : undefined,
     stdout: outMode === 'pipe' ? stdout ?? undefined : undefined,
     stderr: errMode === 'pipe' ? stderr ?? undefined : undefined,
+    control: launch.control,
     /* v8 ignore stop */
     collected: {
       ...stdoutCollector !== undefined ? { stdout: stdoutCollector } : {},
@@ -660,14 +659,19 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
   const binding = prepareManagedProcessBinding(internals)
   const platform = internals.platform ?? process.platform
   const [program, ...args] = spec.argv
+  const stdio: import('node:child_process').StdioOptions = [
+    spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
+    spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
+    spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
+  ]
+  if (spec.stdio.control === 'pipe') {
+    while (stdio.length < SUBPROCESS_CONTROL_FD) stdio.push('ignore')
+    stdio.push('overlapped')
+  }
   const child = (internals.spawn ?? spawn)(program as string, args, {
     cwd: spec.cwd,
-    env: childEnv(spec.env),
-    stdio: [
-      spec.stdio.stdin === 'ignore' ? 'ignore' : 'pipe',
-      spec.stdio.stdout === 'inherit' ? 'inherit' : 'pipe',
-      spec.stdio.stderr === 'inherit' ? 'inherit' : 'pipe',
-    ],
+    env: controlEnvironment(childEnv(spec.env), spec.stdio.control),
+    stdio,
     detached: platform !== 'win32',
     windowsHide: platform === 'win32',
   })
@@ -685,6 +689,7 @@ export function spawnSubprocess(spec: SubprocessSpawnSpec, internals: SpawnInter
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
+    control: controlPipe(child, spec.stdio.control),
     direct,
     owner,
   }, binding)

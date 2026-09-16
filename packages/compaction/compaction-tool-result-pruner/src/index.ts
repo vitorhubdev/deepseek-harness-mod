@@ -137,6 +137,7 @@ export class ToolResultPruner extends Service {
   pruneSession(session: Session): PruneResult {
     const candidates: SnapshotCandidate[] = []
     for (const seq of [...session.surface.nodes]) {
+      // oxlint-disable-next-line typescript/no-deprecated -- Existing Session history read; migration deferred.
       const event = session.eventAt(seq)
       /* v8 ignore next -- surface seqs are validated contiguous log references. */
       if (event?.type === 'tool/result') candidates.push({ seq, event })
@@ -169,7 +170,7 @@ export class ToolResultPruner extends Service {
       session.append('compaction/prune', {
         shadowedRange: { start: seq, end: seq },
         shadowedSeqs: [seq],
-        shadowedTokenCount: this.ctx.tokenMeter.estimateMessage(event.data.message),
+        shadowedTokenCount: this.ctx.tokenMeter.estimateMessage(original),
       })
       const replacement = session.append('tool/result', {
         ...event.data,
