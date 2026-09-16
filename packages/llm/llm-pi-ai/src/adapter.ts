@@ -201,12 +201,23 @@ function reasoningInfo(
   }
 }
 
-/** Merge deployment headers while removing case-insensitive attribution collisions. */
-function requestHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
+/** Merge deployment headers while protecting dynamic session affinity and Harness attribution. */
+function requestHeaders(
+  headers: Readonly<Record<string, string>> | undefined,
+  sessionHeader: string | undefined,
+  sessionId: string | undefined,
+): Record<string, string> {
   const attribution = attributionHeaders()
-  const reserved = new Set(Object.keys(attribution).map(name => name.toLowerCase()))
+  const reserved = new Set([
+    ...Object.keys(attribution),
+    ...(sessionHeader === undefined ? [] : [sessionHeader]),
+  ].map(name => name.toLowerCase()))
+  const dynamicSession = sessionHeader === undefined || sessionId === undefined
+    ? {}
+    : { [sessionHeader]: sessionId }
   return {
     ...Object.fromEntries(Object.entries(headers ?? {}).filter(([name]) => !reserved.has(name.toLowerCase()))),
+    ...dynamicSession,
     ...attribution,
   }
 }
@@ -377,15 +388,18 @@ export class PiAiAdapter extends LlmAdapter {
             maxBytes: profile.requestImageMaxBytes,
           },
         }, onReplayDegrade)
+      const sessionId = options.sessionId === undefined ? undefined : String(options.sessionId)
+      const sessionHeader = profile.sessionHeader
+        ?? (options.provider === 'opencode-go' ? 'x-opencode-session' : undefined)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
         ...options.maxTokens === undefined ? {} : { maxTokens: options.maxTokens },
-        ...options.sessionId === undefined ? {} : { sessionId: String(options.sessionId) },
+        ...sessionId === undefined ? {} : { sessionId },
         signal: watchdog.signal,
-        // Profile headers are deployment-owned; attribution names are
-        // Harness-owned and therefore win collisions.
-        headers: requestHeaders(profile.headers),
+        // Profile headers are deployment-owned; dynamic session affinity and
+        // Harness attribution are runtime-owned and therefore win collisions.
+        headers: requestHeaders(profile.headers, sessionHeader, sessionId),
       })
       const iterator = toStreamChunks(events, model.contextWindow, options.signal, model.id)[Symbol.asyncIterator]()
       let exhausted = false

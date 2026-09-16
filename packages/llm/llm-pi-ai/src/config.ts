@@ -149,6 +149,12 @@ export interface PiAiProviderProfile {
   defaultInput?: PiAiModality[]
   /** Provider request headers, validated against Fetch when the profile resolves; Harness attribution wins reserved names. */
   headers?: Record<string, string>
+  /**
+   * Header receiving the per-conversation Harness session id. The
+   * `opencode-go` route defaults to `x-opencode-session`; other routes
+   * opt in explicitly. The dynamic value wins a same-name static header.
+   */
+  sessionHeader?: string
   /** Provider-neutral pi-ai reasoning level. */
   reasoning?: ModelThinkingLevel
   /** Token budgets used by reasoning providers that support them. */
@@ -331,6 +337,7 @@ const profile = z.object({
   defaultMaxTokens: z.number().step(1).min(1).default(DEFAULT_MAX_TOKENS),
   defaultInput: z.array(z.union(MODALITIES)).default([...DEFAULT_INPUT]),
   headers: z.dict(z.string()),
+  sessionHeader: z.string(),
   reasoning: z.union(THINKING_LEVELS),
   thinkingBudgets,
   cacheRetention: z.union(['none', 'short', 'long']),
@@ -395,6 +402,17 @@ function assertValidHeaders(provider: string, headers: Readonly<Record<string, s
   }
 }
 
+/** Reject a configured dynamic session-header name that Fetch cannot represent. */
+function assertValidSessionHeader(provider: string, sessionHeader: string | undefined): void {
+  if (sessionHeader === undefined) return
+  try {
+    new Headers([[sessionHeader, 'session']])
+  } catch {
+    throw new Error(
+      `llm-pi-ai: provider "${provider}" sessionHeader "${sessionHeader}" is not a valid HTTP field name`,
+    )
+  }
+}
 /**
  * Resolve scalar defaults and materialize each route's serviceable models.
  * Deferred catalog validation retains diagnostics without deleting configured
@@ -422,6 +440,7 @@ export function resolveProfiles(
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
     assertValidHeaders(provider, source.headers)
+    assertValidSessionHeader(provider, source.sessionHeader)
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0

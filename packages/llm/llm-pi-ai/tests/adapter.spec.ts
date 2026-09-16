@@ -123,6 +123,58 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.headers[0]?.['user-agent']).toBe(userAgent())
   })
 
+  it('sends the OpenCode Go session id as x-opencode-session and overrides a static value', async () => {
+    const server = await mockServer([{ events: textEvents }, { events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['opencode-go'], adapterOf({
+      'opencode-go': {
+        api: 'openai-completions',
+        baseURL: server.url,
+        models: [{ id: 'go-model' }],
+        headers: { 'X-OpenCode-Session': 'static-wrong' },
+      },
+    }))
+
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'go-model',
+      messages: [],
+      sessionId: 'conversation-a' as never,
+    })
+    await assemble(ctx, {
+      provider: 'opencode-go',
+      model: 'go-model',
+      messages: [],
+      sessionId: 'conversation-b' as never,
+    })
+
+    expect(server.headers[0]?.['x-opencode-session']).toBe('conversation-a')
+    expect(server.headers[1]?.['x-opencode-session']).toBe('conversation-b')
+  })
+
+  it('supports an explicit dynamic session header on custom provider routes', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const ctx = new Context()
+    await ctx.plugin(LlmRuntime)
+    ctx.llm.registerAdapter(['custom-gateway'], adapterOf({
+      'custom-gateway': {
+        api: 'openai-completions',
+        baseURL: server.url,
+        models: [{ id: 'custom-model' }],
+        sessionHeader: 'x-session-affinity',
+      },
+    }))
+
+    await assemble(ctx, {
+      provider: 'custom-gateway',
+      model: 'custom-model',
+      messages: [],
+      sessionId: 'custom-conversation' as never,
+    })
+
+    expect(server.headers[0]?.['x-session-affinity']).toBe('custom-conversation')
+  })
   it('forwards common stream options and profile reasoning', async () => {
     const server = await mockServer([{ events: textEvents }])
     const ctx = await harness(server.url, {
